@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=53";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=54";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "53";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "54";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -1084,7 +1084,7 @@ function buildLyrics(lines, words, stanza) {
       y.R += lh * 0.5;
     }
     // letter offsets measured once in normal flow, then every letter is placed by hand
-    const chars = [...p.children].map((el) => ({ el, x: el.offsetLeft, w: el.offsetWidth, wi: el.dataset.w == null ? -1 : +el.dataset.w, lit: false }));
+    const chars = [...p.children].map((el) => ({ el, x: el.offsetLeft, w: el.offsetWidth, wi: el.dataset.w == null ? -1 : +el.dataset.w, k: 0, e: 0 }));
     const ln = { p, side, chars, w: p.offsetWidth, h: p.offsetHeight, y0: y[side], x: null };
     y[side] += ln.h + (isMobile() ? 6 : 8);
     return ln;
@@ -1258,7 +1258,22 @@ function tvTick(t) {
     }
     ln.p.style.visibility = "visible";
     ln.p.style.opacity = clamp(1 - out / fade);
-    for (const c of ln.chars) { const on = lit(c.wi); if (on !== c.lit) { c.lit = on; c.el.classList.toggle("on", on); } }
+    // lighting is animated: e eases 0 -> 1 in ~0.25 s when the word starts (red, stiff) and back in
+    // ~0.6 s after it; the size is a spring, so the word pops up with a little bounce and settles
+    for (const c of ln.chars) {
+      const on = lit(c.wi);
+      c.k = Math.max(0, Math.min(1, (c.k || 0) + (on ? dt / 0.25 : -dt / 0.6)));
+      const e = c.e = c.k * c.k * (3 - 2 * c.k);
+      c.pin = e > 0.95;
+      c.sc ??= 1; c.scv ??= 0;
+      c.scv += ((1 + 0.25 * (on ? 1 : e) - c.sc) * 260 - c.scv * 13) * dt;
+      c.sc += c.scv * dt;
+      const col = Math.round(e * 100);
+      if (col !== c.col) {
+        c.col = col;
+        c.el.style.color = col ? `rgb(${Math.round(244 + 11 * e)},${Math.round(244 - 234 * e)},${Math.round(244 - 234 * e)})` : "";
+      }
+    }
     const e = carEdges(frame, y + ln.h / 2);
     const L = ln.side === "L";
     let tx = L ? (e ? e[0] - gap - ln.w : cx - 8 - ln.w) : (e ? e[1] + gap : cx + 8);
@@ -1285,7 +1300,7 @@ function tvTick(t) {
       if (isRope(i)) return;
       if (c.rope) { c.sx = c.nx - P[i]; c.sy = c.ny - cyLine; c.vx = 0; c.vy = 0; }   // ease back from the tail
       c.rope = false;
-      const dy = c.lit ? 0 : Math.sin(P[i] * 0.03 + t * 3.2 + ln.y0 * 0.1) * tv.wob * 0.25;   // a lit word does not ripple
+      const dy = (1 - c.e) * Math.sin(P[i] * 0.03 + t * 3.2 + ln.y0 * 0.1) * tv.wob * 0.25;   // a lit word does not ripple
       if (c.sx === undefined) { c.sx = 0; c.sy = dy; c.vx = 0; c.vy = 0; }
       const kS = 120 + (i % 5) * 12, dmp = 13;
       for (let sub = 0; sub < 2; sub++) {
@@ -1295,7 +1310,7 @@ function tvTick(t) {
         c.sx += c.vx * h; c.sy += c.vy * h;
       }
       c.cxp = P[i] + c.sx; c.cyp = cyLine + c.sy;
-      c.el.style.transform = `translate3d(${(c.cxp - c.w / 2).toFixed(1)}px, ${(c.cyp - ln.h / 2).toFixed(1)}px, 0)${c.lit ? " scale(1.25)" : ""}`;
+      c.el.style.transform = `translate3d(${(c.cxp - c.w / 2).toFixed(1)}px, ${(c.cyp - ln.h / 2).toFixed(1)}px, 0) scale(${c.sc.toFixed(3)})`;
     });
     if (!order.length) continue;
     // rope letters: verlet with gravity, fixed spacing, pushed out of the car
@@ -1312,16 +1327,18 @@ function tvTick(t) {
     for (let sIt = 0; sIt < steps; sIt++) {
       for (const i of order) {
         const c = ln.chars[i];
-        if (c.lit) {
-          // a lit word straightens: its letters spring back to their place in the straight line
-          // (even over the car) and hold there, stiff, until the word goes white and drops again
-          const k = Math.min(1, h * 16);
+        // a lit word straightens: while it lights up its letters are drawn more and more to their
+        // place in the straight line (even over the car); fully lit they are pinned there, stiff,
+        // until the word goes white and drops again
+        const k = Math.min(1, h * 16) * c.e;
+        if (c.pin) {
           c.nx += (P[i] - c.nx) * k; c.ny += (cyLine - c.ny) * k; c.ox = c.nx; c.oy = c.ny;
           continue;
         }
         const vx = (c.nx - c.ox) * 0.94, vy = (c.ny - c.oy) * 0.94;   // swings die out quickly
         c.ox = c.nx; c.oy = c.ny;
-        c.nx += vx; c.ny += vy + G * h * h;
+        c.nx += vx; c.ny += vy + G * h * h * (1 - c.e);
+        c.nx += (P[i] - c.nx) * k; c.ny += (cyLine - c.ny) * k;
       }
       {
         // a little springiness, applied once per step: lean towards carrying on straight
@@ -1330,7 +1347,7 @@ function tvTick(t) {
         for (const i of order) {
           const c = ln.chars[i];
           const rest = pI >= 0 && pI < n ? Math.abs(P[i] - P[pI]) : c.w / 2 + 1;
-          if (c.lit) { dX = L ? 1 : -1; dY = 0; px0 = c.nx; py0 = c.ny; pI = i; continue; }
+          if (c.pin) { dX = L ? 1 : -1; dY = 0; px0 = c.nx; py0 = c.ny; pI = i; continue; }
           c.nx += (px0 + dX * rest - c.nx) * KB + (P[i] - c.nx) * KM;
           c.ny += (py0 + dY * rest - c.ny) * KB + (cyLine - c.ny) * KM;
           const sd = Math.hypot(c.nx - px0, c.ny - py0) || 1;
@@ -1346,7 +1363,7 @@ function tvTick(t) {
         let prevC = null, prevI = anchorIdx, prevAng = out;      // the first link hangs from the fixed anchor
         for (const i of order) {
           const c = ln.chars[i];
-          if (c.lit) { prevAng = out; prevC = c; prevI = i; continue; }   // a lit letter is pinned: the rest hangs from it
+          if (c.pin) { prevAng = out; prevC = c; prevI = i; continue; }   // a lit letter is pinned: the rest hangs from it
           const rest = prevI >= 0 && prevI < n ? Math.abs(P[i] - P[prevI]) : c.w / 2 + 1;
           const ax = prevC ? prevC.nx : anchor.x, ay = prevC ? prevC.ny : anchor.y;
           // one-sided chain from the anchor outwards: length, then out of the car, and the
@@ -1359,6 +1376,7 @@ function tvTick(t) {
           ang = prevAng + Math.max(-JOINT, Math.min(JOINT, wrap(ang - prevAng)));
           ang = out + Math.max(-TOTAL, Math.min(TOTAL, wrap(ang - out)));
           c.nx = ax + Math.cos(ang) * rest; c.ny = ay + Math.sin(ang) * rest;
+          if (c.e) { const q = c.e * c.e; c.nx += (P[i] - c.nx) * q; c.ny += (cyLine - c.ny) * q; }   // lighting up: towards the straight line
           if (c.ny > H + 40) c.ny = H + 40;
           prevAng = ang;
           prevC = c; prevI = i;
@@ -1374,8 +1392,8 @@ function tvTick(t) {
       let ax, ay;
       if (L) { ax = c.nx - last.x; ay = c.ny - last.y; }
       else { ax = last.x - c.nx; ay = last.y - c.ny; }
-      const rot = c.lit ? 0 : Math.atan2(ay, ax);
-      c.el.style.transform = `translate3d(${(c.nx - c.w / 2).toFixed(1)}px, ${(c.ny - ln.h / 2).toFixed(1)}px, 0) rotate(${rot.toFixed(3)}rad)${c.lit ? " scale(1.25)" : ""}`;
+      const rot = (1 - c.e) * Math.atan2(ay, ax);
+      c.el.style.transform = `translate3d(${(c.nx - c.w / 2).toFixed(1)}px, ${(c.ny - ln.h / 2).toFixed(1)}px, 0) rotate(${rot.toFixed(3)}rad) scale(${c.sc.toFixed(3)})`;
       last = { x: c.nx, y: c.ny };
     });
   }

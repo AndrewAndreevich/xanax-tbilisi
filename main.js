@@ -311,8 +311,30 @@ function drawHead(f) {
   }
   headCtx.putImageData(headCache.get(f), 0, 0);
 }
+// ---------------------------------------------------------------- slide-2 fox: dithered grey, in the background
+const foxCv = $("#fox");
+let foxImg = null;
+function drawFox() {
+  if (!foxImg) return;
+  const r = foxCv.getBoundingClientRect(), cell = 3;
+  const w = Math.max(1, Math.round(r.width / cell)), h = Math.max(1, Math.round(r.height / cell));
+  foxCv.width = w; foxCv.height = h;
+  const c = foxCv.getContext("2d", { willReadFrequently: true });
+  c.drawImage(foxImg, 0, 0, w, h);
+  const img = c.getImageData(0, 0, w, h), d = img.data;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = (y * w + x) * 4;
+    if (d[i + 3] < 128) { d[i + 3] = 0; continue; }
+    const l = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
+    const ink = 1 - l * 0.85 > BAYER[(y & 3) * 4 + (x & 3)];
+    const v = ink ? 120 : 200;
+    d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = ink ? 255 : 110;
+  }
+  c.putImageData(img, 0, 0);
+}
+
 // head turns away and back while the cross rotates
-const HEAD_SEQ = [0, 15, 14, 13, 12, 13, 14, 15, 0, 1, 2, 3, 4];
+const HEAD_SEQ = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0];   // one full turn, in order
 
 function resize() {
   const w = innerWidth, h = innerHeight;
@@ -325,6 +347,7 @@ function resize() {
   panelW = $(".panel.left").offsetWidth;
   drawTerrain($("#terrainDark"), "#2b2b2b", 3.1, 1.25);
   drawTerrain($("#terrainLight"), "#bdbdbd", 7.7, 1.5);
+  drawFox();
 }
 addEventListener("resize", resize);
 
@@ -359,7 +382,8 @@ function onScroll() {
   cross.style.setProperty("--sc", 0.85 + 0.15 * enter + 0.12 * p2);
   cross.style.setProperty("--mx", clamp((p2 - 0.3) * 3));
   headCv.style.setProperty("--hy", `${(1 - enter) * 22}vh`);
-  drawHead(HEAD_SEQ[Math.round(p2 * (HEAD_SEQ.length - 1))]);
+  foxCv.style.setProperty("--fy", `${(1 - enter) * 10 - p2 * 6}vh`);
+  drawHead(HEAD_SEQ[Math.floor(p2 * (HEAD_SEQ.length - 1) + 0.5)]);
   bignum.textContent = NUMS[Math.min(NUMS.length - 1, Math.floor(p2 * NUMS.length))];
   canvas.style.visibility = r2.top > 0 ? "visible" : "hidden";
   $("#terrainDark").style.visibility = canvas.style.visibility;
@@ -374,19 +398,18 @@ function frame() {
   p1s += (p1 - p1s) * Math.min(1, dt * 7);
   if (BODY && canvas.style.visibility !== "hidden") {
     const n = BODY.frames.length;
-    const yaw = p1s * 2.25 + mouse.x * 0.06 + Math.sin(t * 0.35) * 0.01;   // turns
-    const f = ((yaw * n) % n + n) % n;
-    const a = Math.floor(f);
+    // scroll alone drives the turn: frames go 0, 1, 2 … 15, 0 in order, one at a time
+    const a = Math.floor(p1s * 2 * n) % n;
     glitchT = Math.max(0, glitchT - dt);
     const spike = Math.random() < 0.012 ? 0.3 : 0;
     figMat.uniforms.uA.value = a;
-    figMat.uniforms.uB.value = (a + 1) % n;
-    figMat.uniforms.uMix.value = f - a;
+    figMat.uniforms.uB.value = a;
+    figMat.uniforms.uMix.value = 0;
     figMat.uniforms.uTime.value = t;
     figMat.uniforms.uGlitch.value = Math.max(glitchT * 2, spike);
     figMat.uniforms.uSplit.value = 0.003 + glitchT * 0.02;
     renderer.render(scene, camera);
-    flowText(Math.round(f) % n);
+    flowText(a);
   }
   requestAnimationFrame(frame);
 }
@@ -407,6 +430,7 @@ Promise.all([
   fetch("assets/arseny_bust.json").then((r) => r.json()),
   tex.loadAsync("assets/arseny_body.webp").then((t) => { target += 35; return t; }),
   img("assets/arseny_bust.webp").then((i) => { target += 25; return i; }),
+  img("assets/fox.png").then((i) => (foxImg = i)),
   document.fonts.ready,
 ]).then(([body, bustJ, atlas, bust]) => {
   BODY = body; bustMeta = bustJ; bustImg = bust;

@@ -52,13 +52,17 @@ body = Image.new("RGBA", (COLS * CW, rows * CH))
 bust = Image.new("RGBA", (COLS * BUST, rows * BUST))
 frames = []
 for i, (img, (x0, y0, x1, y1)) in enumerate(zip(cut, boxes)):
-    # body: same scale, centred on the frame's centre of mass, feet on floor_y
+    # body: every frame scaled to the same height, head on one vertical axis, feet on
+    # floor_y. The views are generated one by one, so their size and centring drift
+    # a little; the head is what the eye tracks while the figure turns.
     crop = img.crop((x0, y0, x1, y1))
     a = np.asarray(crop.getchannel("A")).astype(float)
-    cx = (a.sum(0) * np.arange(a.shape[1])).sum() / a.sum()
-    w, h = max(1, round(crop.width * scale)), max(1, round(crop.height * scale))
+    head = a[: int(a.shape[0] * 0.12)]
+    cx = (head.sum(0) * np.arange(head.shape[1])).sum() / head.sum()
+    fs = scale * tallest / crop.height
+    w, h = max(1, round(crop.width * fs)), max(1, round(crop.height * fs))
     small = crop.resize((w, h), Image.LANCZOS)
-    px = (i % COLS) * CW + int(CW / 2 - cx * scale)
+    px = (i % COLS) * CW + int(CW / 2 - cx * fs)
     py = (i // COLS) * CH + floor_y - h
     body.paste(small, (px, py), small)
 
@@ -71,10 +75,10 @@ for i, (img, (x0, y0, x1, y1)) in enumerate(zip(cut, boxes)):
         xs = np.nonzero(band > 40)[0]
         prof.append([round(xs.min() / CW, 3), round((xs.max() + 1) / CW, 3)] if len(xs) else None)
 
-    # bust: square around the head, full source resolution; same size on every frame
-    side = int(tallest * 0.36)
+    # bust: square around the head, same head size and position on every frame
+    side = int(crop.height * 0.36)
     hx = x0 + cx
-    bx0, by0 = int(hx - side / 2), int(y1 - tallest - side * 0.06)
+    bx0, by0 = int(hx - side / 2), int(y0 - side * 0.06)
     b = img.crop((bx0, by0, bx0 + side, by0 + side)).resize((BUST, BUST), Image.LANCZOS)
     bust.paste(b, ((i % COLS) * BUST, (i // COLS) * BUST), b)
 

@@ -102,6 +102,8 @@ em { font-style: normal; color: var(--dim); }
 .tear { position: absolute; left: 0; top: -59px; width: 100%; height: 60px; display: block; }
 .s2-sticky { position: sticky; top: 0; height: 100vh; overflow: hidden; }
 .terrain.light { position: absolute; height: 55%; }
+/* the pvf_objects fox, dithered into the hills behind the cross */
+.fox { position: absolute; right: 21vw; bottom: 4vh; height: 52vh; aspect-ratio: 457 / 720; image-rendering: pixelated; opacity: .6; transform: translateY(var(--fy, 0)); }
 .cross { position: absolute; left: 50%; top: 46%; width: min(82vw, 1150px); aspect-ratio: 1; transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) scale(var(--sc, 1)); }
 .cross i { position: absolute; background: var(--red); display: block; }
 .cross .bar-v { left: 43%; width: 14%; top: -30%; height: 130%; }
@@ -158,6 +160,7 @@ em { font-style: normal; color: var(--dim); }
   .head { height: auto; width: 125vw; }
   .bignum { left: 12%; top: 40%; font-size: 72px; }
   .geo { right: var(--gutter); top: 11vh; }
+  .fox { right: -6vw; bottom: 2vh; height: 34vh; }
   #s3 { padding: 14vh var(--gutter) 70px; }
 }
 @media (prefers-reduced-motion: reduce) {

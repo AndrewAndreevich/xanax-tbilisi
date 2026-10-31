@@ -1,0 +1,12 @@
+{
+  "glb": "E:/Workspace/pvf_character_builder/build/hf_orbit/mv3d/char01_tripo.glb",
+  "front": "E:/Workspace/pvf_character_builder/build/characters/char01/idle/views/el+00_az000_f00.png",
+  "out": "E:/Workspace/xanax-tbilisi-site/build/mesh_ring",
+  "targetHeight": 1.8,
+  "size": 1200,
+  "fov": 40.0,
+  "distance": 2.8436,
+  "yaw": 270,
+  "elevations": [0.0],
+  "steps": 48
+}

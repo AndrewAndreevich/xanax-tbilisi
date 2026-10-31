@@ -5,7 +5,7 @@ Each cell is keyed off the white with the builder's border flood-fill cutout (wh
 outline stays), all views get one scale and a common bottom line, centred on their own middle,
 plus a silhouette profile per view for the lyrics to flow round.
 
-usage: python tools/build_sheet_impostor.py SHEET NAME [--cols 4 --rows 2 --cell-w 256 --cell-h 512]
+usage: python tools/build_sheet_impostor.py SHEET NAME [--cols 4 --rows 2 --cell-w 256 --cell-h 512 --fit-height]
 """
 
 import argparse
@@ -27,6 +27,7 @@ ap.add_argument("--cols", type=int, default=4)
 ap.add_argument("--rows", type=int, default=2)
 ap.add_argument("--cell-w", type=int, default=256)
 ap.add_argument("--cell-h", type=int, default=512)
+ap.add_argument("--fit-height", action="store_true", help="scale every view to the same height (views drawn at different sizes)")
 a = ap.parse_args()
 OUT = os.path.join(os.path.dirname(__file__), "..", "assets")
 PROFILE_ROWS = 64
@@ -51,7 +52,8 @@ atlas = Image.new("RGBA", (a.cols * CW, a.rows * CH))
 frames = []
 for i, (v, (x0, y0, x1, y1)) in enumerate(zip(views, boxes)):
     crop = v.crop((x0, y0, x1, y1))
-    w, h = max(1, round(crop.width * scale)), max(1, round(crop.height * scale))
+    sc = min(CH * 0.96 / crop.height, CW * 0.96 / crop.width) if a.fit_height else scale
+    w, h = max(1, round(crop.width * sc)), max(1, round(crop.height * sc))
     crop = crop.resize((w, h), Image.LANCZOS)
     ox, oy = (i % a.cols) * CW, (i // a.cols) * CH
     atlas.paste(crop, (ox + (CW - w) // 2, oy + floor - h), crop)

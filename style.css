@@ -204,8 +204,6 @@ em { font-style: normal; color: var(--dim); }
 .tv-lyrics p.cur { color: var(--red); }
 /* the SoundCloud widget only plays; the HUD player is the one control */
 .tv iframe { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; border: 0; opacity: 0; pointer-events: none; }
-.bc-play { margin-left: auto; width: 40px; height: 40px; overflow: hidden; border: 1px solid #fff; flex: none; }
-.tv .bc-play iframe.bc { position: static; display: block; width: 360px; height: 42px; margin: -1px 0 0 -43px; opacity: 1; pointer-events: auto; }   /* Bandcamp-only tracks: its own small player */
 #s3.tv-room { padding-bottom: 100vh; }             /* scroll room so the opening line can sit mid-screen */
 .tv-sync { position: absolute; left: 50%; top: 52px; transform: translateX(-50%); z-index: 4; color: var(--red); font-size: 10px; font-weight: 700; }
 .tv-sync textarea { display: block; width: min(80vw, 420px); height: 70px; margin-top: 6px; font: 10px var(--mono); background: #111; color: #eee; border: 1px solid #444; }

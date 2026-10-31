@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=42";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=43";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "42";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "43";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -70,33 +70,32 @@ const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 
 // ---------------------------------------------------------------- DOM fill
 $("#roles").innerHTML = [...ROLES, ...ROLES].map((r) => `<span>${r}</span>`).join("");
-$("#tracks").innerHTML = TRACKS.map(([t, d], i) => `<li data-t="${t}" tabindex="0" role="button"><span>${String(i + 1).padStart(2, "0")} ${t}</span><span>${d}</span></li>`).join("");
-// tracks that open a track view: the source (SoundCloud widget, or the Bandcamp player for
-// the six tracks that are not on the band's SoundCloud) + the impostor that spins in it.
+// tracks that open a track view: the band's SoundCloud + the impostor that spins in it
+// (the six album tracks that are only on Bandcamp do not play here).
 // shape_* are abstract placeholders (tools/build_shapes.py) until each track gets its object.
 const scUrl = (slug) => `https://soundcloud.com/xanaxtbilisi/${slug}`;
-const BC_ALBUM = 2423891338;
 const PLAYABLE = {
   "EUROORGASM": { sc: scUrl("euroorgasm"), impostor: "shape_star", size: 0.8 },
   "RADIO KABUL": { sc: scUrl("radio-kabul"), impostor: "shape_rings", size: 0.9 },
   "VLADIMIR PUTIN IS DEAD": { sc: scUrl("putin-is-dead"), impostor: "shape_cross", size: 0.8 },
-  "CHINA GARDEN": { bc: 3206999393, impostor: "shape_hourglass", size: 0.8 },
   "NATURAL DEMOCRAT": { sc: scUrl("natural-democrat"), impostor: "shape_holes", size: 0.8 },
   "DYING SWAN": { sc: scUrl("the-dying-swan"), impostor: "shape_twist", size: 0.8 },
   "RUSSIANS GO HOME": { sc: scUrl("russians-go-home"), impostor: "shape_cone", size: 0.8 },
   "S. L. O. N.": { sc: scUrl("slon"), impostor: "shape_menger", size: 0.8 },
-  "MORDOR CALLING": { bc: 3785303274, impostor: "shape_octa", size: 0.8 },
-  "OCCUPAN VACATION": { bc: 3649433828, impostor: "shape_torus", size: 0.8 },
-  "300 ARAGVELI": { bc: 212151304, impostor: "shape_tetra", size: 0.8 },
   "XNX TBS": { sc: scUrl("xnx-tbs"), impostor: "shape_bar", size: 0.8 },
   "CRYPTO ACAB": { sc: scUrl("crypto-acab"), impostor: "shape_gem", size: 0.9 },
-  "COMRADE IN TRAGEDY": { bc: 2240650391, impostor: "shape_links", size: 0.8 },
-  "RADIO PYONGYANG": { bc: 3679454795, impostor: "shape_helix", size: 0.8 },
   // times: when each lyric line starts (s); record them with ?sync on the site
   "STALIN MOUSTACHE": { sc: "https://soundcloud.com/xanaxtbilisi/stalin-moustache", impostor: "prius", times: null },
   // only the acoustic version is on the band's SoundCloud
   "WHERE I'VE BEEN LAST 8 YEARS": { sc: "https://soundcloud.com/xanaxtbilisi/where-ive-been-last-8-years-acoustic", impostor: "bottle", size: 0.5, times: null },
 };
+// the HUD playlist (shown in player mode): the playable tracks in album order
+const PLAY_LIST = TRACKS.filter(([t]) => PLAYABLE[t]);
+$("#tracks").innerHTML = PLAY_LIST.map(([t, d], i) => `<li data-t="${t}" tabindex="0" role="button"><span>${String(i + 1).padStart(2, "0")} ${t}</span><span>${d}</span></li>`).join("");
+{
+  const sec = PLAY_LIST.reduce((a, [, d]) => a + d.split(":").reduce((m, x) => m * 60 + +x, 0), 0);
+  $(".total").innerHTML = `<span>[${PLAY_LIST.length}]</span><span>${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}</span>`;
+}
 $("#exitTracks").innerHTML = TRACKS.map(([t, d], i) =>
   `<div class="tr${PLAYABLE[t] ? " playable" : ""}" data-t="${t}"><span>${String(i + 1).padStart(2, "0")} ${t}</span><b>${d}</b></div>`).join("");
 
@@ -923,7 +922,6 @@ async function openTrack(row) {
 async function switchTrack(row) {
   tv.busy = true;
   try { tv.widget && tv.widget.pause(); } catch {}
-  if (ext && ext.bc) ext.pause();
   tv.token = null;                                          // the old track's widget events stop counting
   tv.leave0 = performance.now();
   await new Promise((r) => setTimeout(r, 1300));
@@ -938,12 +936,9 @@ async function switchTrack(row) {
 // the track's own parts of the stage: title, buttons, players, lyrics, the HUD player
 function setupTrack(row) {
   const el = tv.el, title = row.dataset.t, cfg = PLAYABLE[title];
-  el.querySelectorAll("iframe, .bc-play").forEach((f) => f.remove());
+  el.querySelectorAll("iframe").forEach((f) => f.remove());
   el.querySelector(".tv-title").textContent = title;
-  // Bandcamp's player is cut down to its play button: the title is already in the HUD player
-  if (cfg.bc) el.querySelector(".tv-bar").insertAdjacentHTML("beforeend", `<span class="bc-play"><iframe class="bc" title="Play ${title} on Bandcamp"
-    src="https://bandcamp.com/EmbeddedPlayer/album=${BC_ALBUM}/size=small/bgcol=000000/linkcol=ffffff/track=${cfg.bc}/transparent=true/"></iframe></span>`);
-  if (cfg.sc) el.insertAdjacentHTML("beforeend", `<iframe class="sc" allow="autoplay" title="${title} on SoundCloud" tabindex="-1"
+  el.insertAdjacentHTML("beforeend", `<iframe class="sc" allow="autoplay" title="${title} on SoundCloud" tabindex="-1"
     src="https://w.soundcloud.com/player/?url=${encodeURIComponent(cfg.sc)}&auto_play=true&show_user=false&show_artwork=false&visual=false"></iframe>`);
   tv.lyr.innerHTML = "";
   tv.ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -955,7 +950,7 @@ function setupTrack(row) {
   const rows = trackRows(), idx = rows.indexOf(row);
   el.querySelector(".tv-prev").disabled = idx <= 0;
   el.querySelector(".tv-next").disabled = idx >= rows.length - 1;
-  ext = cfg.bc ? bcClock(title) : { paused: true, play() { tv.widget?.play(); }, pause() { tv.widget?.pause(); },
+  ext = { paused: true, play() { tv.widget?.play(); }, pause() { tv.widget?.pause(); },
     seek(k) { tv.widget?.seekTo(k * tv.dur * 1000); }, volume(v) { tv.widget?.setVolume(v * 100); } };
   setPlayerTitle(title, "XANAX TBILISI");
   plTime.textContent = "00:00 / 00:00";
@@ -968,13 +963,12 @@ function setupTrack(row) {
 // once the object is loaded: it drives in, the lyrics and the SoundCloud widget start
 async function startTrack(row) {
   const token = tv.token, title = row.dataset.t, cfg = PLAYABLE[title];
-  const [[meta, im]] = await Promise.all([loadImpostor(cfg.impostor), cfg.sc ? loadScApi().catch(() => null) : null]);
+  const [[meta, im]] = await Promise.all([loadImpostor(cfg.impostor), loadScApi().catch(() => null)]);
   if (tv.token !== token) return;
   tv.meta = meta; tv.img = im;
   if (!tv.appear0) tv.appear0 = performance.now();
   // lyrics: the track's description on SoundCloud
   const fallback = [title, "XANAX TBILISI", "2022"];
-  if (cfg.bc) { buildLyrics(fallback); return; }
   fetch(`https://soundcloud.com/oembed?format=json&url=${encodeURIComponent(cfg.sc)}`)
     .then((r) => r.json())
     .then((j) => {
@@ -1010,35 +1004,6 @@ async function startTrack(row) {
     });
   }
 }
-
-// Bandcamp's embedded player has no API: the sound is started in its own small player,
-// and the HUD keeps a clock of the track's length so the lyrics and the waveform still move
-function bcClock(title) {
-  const [m, s] = TRACKS.find(([t]) => t === title)[1].split(":").map(Number);
-  tv.dur = m * 60 + s;
-  let at = 0, t0 = 0;                                       // position while paused / when the run started
-  const pos = () => (c.paused ? at : at + (performance.now() - t0) / 1000);
-  const c = { paused: true, bc: true,
-    play() { if (!c.paused) return; t0 = performance.now(); c.paused = false; syncUI(); },
-    pause() { if (c.paused) return; at = pos(); c.paused = true; syncUI(); },
-    seek(k) { at = k * tv.dur; t0 = performance.now(); },
-    volume() {},
-    tick() {
-      if (tv.scrubbing) return;
-      let p = pos();
-      if (p >= tv.dur) {
-        at = 0; t0 = performance.now(); p = 0;
-        if (!c.paused) { c.paused = true; syncUI(); if (autoNext) stepTrack(1); }
-      }
-      tv.pos = p; tv.progress = p / tv.dur;
-      plTime.textContent = `${mmss(p)} / ${mmss(tv.dur)}`;
-    } };
-  return c;
-}
-// a click into the Bandcamp player takes the focus off the page: take it as its play / pause button
-addEventListener("blur", () => {
-  if (ext && ext.bc && document.activeElement?.classList.contains("bc")) { ext.paused ? ext.play() : ext.pause(); setTimeout(() => window.focus(), 0); }
-});
 
 function buildLyrics(lines) {
   tv.lyr.innerHTML = lines.map((l, i) =>
@@ -1140,7 +1105,6 @@ function carPush(x, y, fromLeft) {
 
 function tvTick(t) {
   if (!tv.el || !tv.img) return;
-  if (ext && ext.bc) ext.tick();
   const nowMs = performance.now();
   const dt = Math.min(0.05, Math.max(0.001, (nowMs - (tv.lastT || nowMs)) / 1000 || 0.016));
   tv.lastT = nowMs;

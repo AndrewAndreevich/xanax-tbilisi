@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=16";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=17";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "16";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "17";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -73,7 +73,8 @@ $("#roles").innerHTML = [...ROLES, ...ROLES].map((r) => `<span>${r}</span>`).joi
 $("#tracks").innerHTML = TRACKS.map(([t, d], i) => `<li><span>${String(i + 1).padStart(2, "0")} ${t}</span><span>${d}</span></li>`).join("");
 // tracks that open a track view: SoundCloud source + the impostor that spins in it
 const PLAYABLE = {
-  "STALIN MOUSTACHE": { sc: "https://soundcloud.com/xanaxtbilisi/stalin-moustache", impostor: "prius" },
+  // times: when each lyric line starts (s); record them with ?sync on the site
+  "STALIN MOUSTACHE": { sc: "https://soundcloud.com/xanaxtbilisi/stalin-moustache", impostor: "prius", times: null },
 };
 $("#exitTracks").innerHTML = TRACKS.map(([t, d], i) =>
   `<div class="tr${PLAYABLE[t] ? " playable" : ""}" data-t="${t}"><span>${String(i + 1).padStart(2, "0")} ${t}</span><b>${d}</b></div>`).join("");
@@ -558,7 +559,11 @@ function sizePills() {
 // (the track's description on SoundCloud, fetched live) flow round the car's
 // silhouette in step with playback. BACK folds it away.
 const tv = { el: null, row: null, cv: null, ctx: null, lyr: null, lines: [], streamH: 0, widget: null,
-  progress: 0, dur: 0, img: null, meta: null, rect: { x: 0, y: 0, w: 0, h: 0 }, resume: false };
+  progress: 0, pos: 0, dur: 0, img: null, meta: null, rect: { x: 0, y: 0, w: 0, h: 0 }, resume: false,
+  title: "", times: null, syncing: false, tapTimes: [] };
+const SYNC = new URLSearchParams(location.search).has("sync");
+const timesKey = (t) => `xt-times:${t}`;
+const savedTimes = (t) => { try { return JSON.parse(localStorage.getItem(timesKey(t))); } catch { return null; } };
 let scApi = null;
 const loadScApi = () => scApi || (scApi = new Promise((ok, err) => {
   const sc = document.createElement("script");
@@ -596,7 +601,8 @@ async function openTrack(row) {
       src="https://w.soundcloud.com/player/?url=${encodeURIComponent(cfg.sc)}&color=%23ff0a0a&auto_play=true&show_user=false&show_artwork=false&visual=false"></iframe>`;
   row.after(el);
   row.classList.add("on");
-  Object.assign(tv, { el, row, cv: el.querySelector("canvas"), lyr: el.querySelector(".tv-lyrics"), lines: [], progress: 0, dur: 0, widget: null, img: null });
+  Object.assign(tv, { el, row, cv: el.querySelector("canvas"), lyr: el.querySelector(".tv-lyrics"), lines: [], progress: 0, pos: 0, dur: 0, widget: null, img: null,
+    title, times: cfg.times || savedTimes(title), syncing: SYNC, tapTimes: [] });
   tv.ctx = tv.cv.getContext("2d");
   el.querySelector(".tv-back").addEventListener("click", closeTrack);
   // the site's own track steps aside while this one plays
@@ -604,7 +610,19 @@ async function openTrack(row) {
   if (tv.resume) audio.pause();
   void el.offsetHeight;                                     // commit height 0 first, so the opening animates
   el.classList.add("open");
-  setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "nearest" }), 250);
+  // the stage takes the whole screen: once it has opened (the page is long enough
+  // only then), bring its top to the top of the viewport
+  el.addEventListener("transitionend", (e) => {
+    if (e.propertyName === "height" && el.classList.contains("open"))
+      scrollTo({ top: scrollY + el.getBoundingClientRect().top, behavior: "smooth" });
+  }, { once: true });
+  if (SYNC) {
+    const box = document.createElement("div");
+    box.className = "tv-sync";
+    box.textContent = "SYNC: TAP / SPACE AT THE START OF EACH LINE";
+    el.appendChild(box);
+    el.addEventListener("pointerdown", (e) => { if (!e.target.closest("button, iframe, textarea")) tapLine(); });
+  }
 
   const [[meta, im]] = await Promise.all([loadImpostor(cfg.impostor), loadScApi().catch(() => null)]);
   if (tv.el !== el) return;
@@ -624,6 +642,7 @@ async function openTrack(row) {
     w.bind(SC.Widget.Events.READY, () => { w.play(); w.getDuration((d) => (tv.dur = d / 1000)); });
     w.bind(SC.Widget.Events.PLAY_PROGRESS, (e) => {
       tv.progress = e.relativePosition;
+      tv.pos = e.currentPosition / 1000;
       el.querySelector(".tv-time").textContent = `${mmss(e.currentPosition / 1000)} / ${mmss(tv.dur)}`;
     });
   }
@@ -641,6 +660,22 @@ function buildLyrics(lines) {
   tv.streamH = Math.max(y.L, y.R);
 }
 
+// ?sync: tap (or space) when each line starts; the times apply at once, are kept on
+// this device, and are copied so they can be put into PLAYABLE[...].times for everyone
+function tapLine() {
+  if (!tv.el || !tv.lines.length) return;
+  tv.tapTimes.push(+tv.pos.toFixed(2));
+  const box = tv.el.querySelector(".tv-sync");
+  const n = tv.tapTimes.length, total = tv.lines.length;
+  if (n < total) { box.textContent = `SYNC ${n} / ${total}`; return; }
+  tv.times = tv.tapTimes.slice(); tv.syncing = false;
+  try { localStorage.setItem(timesKey(tv.title), JSON.stringify(tv.times)); } catch {}
+  const json = JSON.stringify(tv.times);
+  box.innerHTML = `SYNC DONE — SEND THIS:<textarea readonly>${json}</textarea>`;
+  navigator.clipboard?.writeText(json).catch(() => {});
+}
+addEventListener("keydown", (e) => { if (SYNC && tv.el && e.code === "Space") { e.preventDefault(); tapLine(); } });
+
 function carEdges(frame, y) {
   const { meta, rect } = tv, prof = meta.frames[frame].profile, n = prof.length;
   const r = Math.floor((y - rect.y) / rect.h * n);
@@ -656,30 +691,45 @@ function tvTick(t) {
   if (!W || !H) return;
   if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
   const { meta, img: im, ctx } = tv;
-  const n = meta.frames.length, frame = Math.floor(t * 11) % n;            // one turn every ~4.4 s, frames in order
-  const cw = Math.min(W * (isMobile() ? 0.92 : 0.6), H * 0.9 * meta.cellW / meta.cellH);
+  const n = meta.frames.length, frame = Math.floor(t * 5) % n;             // one slow turn every ~9.6 s, frames in order
+  const cw = Math.min(W * (isMobile() ? 0.7 : 0.34), H * 0.5 * meta.cellW / meta.cellH);
   const ch = cw * meta.cellH / meta.cellW;
   tv.rect = { x: (W - cw) / 2, y: H * 0.5 - ch / 2, w: cw, h: ch };
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
   const c = frame % meta.cols, r = Math.floor(frame / meta.cols);
   ctx.drawImage(im, c * meta.cellW, r * meta.cellH, meta.cellW, meta.cellH, tv.rect.x, tv.rect.y, cw, ch);
-  // lyrics stream up through the stage over the length of the track
-  const prog = tv.progress || 0, travel = prog * (tv.streamH + H);
+  // lyrics stream up through the stage. With line times the current line sits at the
+  // car's middle while it is sung; without them they just spread over the track (no highlight).
+  let travel, curIdx = -1;
+  const times = tv.times && tv.times.length ? tv.times : null;
+  if (times) {
+    const now = tv.pos;
+    let i = 0;
+    while (i + 1 < times.length && times[i + 1] <= now) i++;
+    curIdx = now >= times[0] ? i : -1;
+    const a = tv.lines[i], b = tv.lines[Math.min(i + 1, tv.lines.length - 1)];
+    const span = (times[i + 1] ?? (times[i] + 4)) - times[i];
+    const f = clamp((now - times[i]) / Math.max(0.1, span));
+    const lead = now < times[0] ? -clamp((times[0] - now) / 3) : 0;           // ease in before the first line
+    const y0 = a ? a.y0 + ((b ? b.y0 : a.y0) - a.y0) * f : 0;
+    travel = H - 8 - H * 0.5 + y0 + lead * H * 0.4;
+  } else {
+    travel = (tv.progress || 0) * (tv.streamH + H);
+  }
   const gap = isMobile() ? 6 : 12, cx = W / 2;
-  let cur = null;
+  const minX = isMobile() ? 6 : panelW + 10, maxX = isMobile() ? W - 6 : W - panelW - 10;
   for (const ln of tv.lines) {
     const y = H - 8 + ln.y0 - travel;
     if (y < -20 || y > H) { ln.p.style.visibility = "hidden"; ln.x = null; continue; }
     ln.p.style.visibility = "visible";
     const e = carEdges(frame, y + ln.h / 2) || [cx - 6, cx + 6];
     let tx = ln.side === "L" ? e[0] - gap - ln.w : e[1] + gap;
-    tx = Math.max(6, Math.min(W - 6 - ln.w, tx));
+    tx = Math.max(minX, Math.min(maxX - ln.w, tx));
     ln.x = ln.x == null ? tx : ln.x + (tx - ln.x) * 0.3;
     ln.p.style.transform = `translate3d(${ln.x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
-    if (y > H * 0.45 && y < H * 0.55) cur = ln;
   }
-  for (const ln of tv.lines) ln.p.classList.toggle("cur", ln === cur);
+  tv.lines.forEach((ln, i) => ln.p.classList.toggle("cur", i === curIdx));
 }
 
 $("#exitTracks").addEventListener("click", (e) => {

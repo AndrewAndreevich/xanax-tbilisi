@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=15";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=16";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "15";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "16";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -71,7 +71,12 @@ const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 // ---------------------------------------------------------------- DOM fill
 $("#roles").innerHTML = [...ROLES, ...ROLES].map((r) => `<span>${r}</span>`).join("");
 $("#tracks").innerHTML = TRACKS.map(([t, d], i) => `<li><span>${String(i + 1).padStart(2, "0")} ${t}</span><span>${d}</span></li>`).join("");
-$("#exitTracks").innerHTML = TRACKS.map(([t, d], i) => `<div><span>${String(i + 1).padStart(2, "0")} ${t}</span><b>${d}</b></div>`).join("");
+// tracks that open a track view: SoundCloud source + the impostor that spins in it
+const PLAYABLE = {
+  "STALIN MOUSTACHE": { sc: "https://soundcloud.com/xanaxtbilisi/stalin-moustache", impostor: "prius" },
+};
+$("#exitTracks").innerHTML = TRACKS.map(([t, d], i) =>
+  `<div class="tr${PLAYABLE[t] ? " playable" : ""}" data-t="${t}"><span>${String(i + 1).padStart(2, "0")} ${t}</span><b>${d}</b></div>`).join("");
 
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 // one sentence per line, alternating sides of the figure
@@ -547,6 +552,141 @@ function sizePills() {
   pillCv.height = Math.max(1, Math.round(r.height * dpr));
 }
 
+// ---------------------------------------------------------------- track view (slide 3)
+// Clicking a playable track opens a black stage right under it: the impostor turns
+// on one ring, the track plays through the band's SoundCloud widget, and the lyrics
+// (the track's description on SoundCloud, fetched live) flow round the car's
+// silhouette in step with playback. BACK folds it away.
+const tv = { el: null, row: null, cv: null, ctx: null, lyr: null, lines: [], streamH: 0, widget: null,
+  progress: 0, dur: 0, img: null, meta: null, rect: { x: 0, y: 0, w: 0, h: 0 }, resume: false };
+let scApi = null;
+const loadScApi = () => scApi || (scApi = new Promise((ok, err) => {
+  const sc = document.createElement("script");
+  sc.src = "https://w.soundcloud.com/player/api.js";
+  sc.onload = () => ok(window.SC); sc.onerror = err;
+  document.head.appendChild(sc);
+}));
+const impostors = {};
+const loadImpostor = (name) => impostors[name] || (impostors[name] = Promise.all([
+  fetch(asset(`assets/${name}.json`)).then((r) => r.json()),
+  img(asset(`assets/${name}.webp`)),
+]));
+
+function closeTrack() {
+  if (!tv.el) return;
+  const { el, row } = tv;
+  try { tv.widget && tv.widget.pause(); } catch {}
+  el.classList.remove("open");
+  row.classList.remove("on");
+  tv.el = null;
+  setTimeout(() => el.remove(), 800);
+  if (tv.resume) { userPaused = false; play(true).then(syncUI); }
+}
+
+async function openTrack(row) {
+  const title = row.dataset.t, cfg = PLAYABLE[title];
+  if (tv.el && tv.row === row) return;
+  closeTrack();
+  const el = document.createElement("div");
+  el.className = "tv";
+  el.innerHTML = `<div class="tv-bar"><button class="pl-btn tv-back" type="button">&#9664; BACK</button>
+    <span class="tv-title">${title}</span><span class="tv-time">00:00 / 00:00</span></div>
+    <canvas></canvas><div class="tv-lyrics"></div>
+    <iframe allow="autoplay" title="${title} on SoundCloud"
+      src="https://w.soundcloud.com/player/?url=${encodeURIComponent(cfg.sc)}&color=%23ff0a0a&auto_play=true&show_user=false&show_artwork=false&visual=false"></iframe>`;
+  row.after(el);
+  row.classList.add("on");
+  Object.assign(tv, { el, row, cv: el.querySelector("canvas"), lyr: el.querySelector(".tv-lyrics"), lines: [], progress: 0, dur: 0, widget: null, img: null });
+  tv.ctx = tv.cv.getContext("2d");
+  el.querySelector(".tv-back").addEventListener("click", closeTrack);
+  // the site's own track steps aside while this one plays
+  tv.resume = !audio.paused;
+  if (tv.resume) audio.pause();
+  void el.offsetHeight;                                     // commit height 0 first, so the opening animates
+  el.classList.add("open");
+  setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "nearest" }), 250);
+
+  const [[meta, im]] = await Promise.all([loadImpostor(cfg.impostor), loadScApi().catch(() => null)]);
+  if (tv.el !== el) return;
+  tv.meta = meta; tv.img = im;
+  // lyrics: the track's description on SoundCloud
+  const fallback = [title, "XANAX TBILISI", "2022"];
+  fetch(`https://soundcloud.com/oembed?format=json&url=${encodeURIComponent(cfg.sc)}`)
+    .then((r) => r.json())
+    .then((j) => {
+      if (tv.el !== el) return;
+      const text = (j.description || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      buildLyrics(text.length ? text : fallback);
+    })
+    .catch(() => tv.el === el && buildLyrics(fallback));
+  if (window.SC) {
+    const w = tv.widget = SC.Widget(el.querySelector("iframe"));
+    w.bind(SC.Widget.Events.READY, () => { w.play(); w.getDuration((d) => (tv.dur = d / 1000)); });
+    w.bind(SC.Widget.Events.PLAY_PROGRESS, (e) => {
+      tv.progress = e.relativePosition;
+      el.querySelector(".tv-time").textContent = `${mmss(e.currentPosition / 1000)} / ${mmss(tv.dur)}`;
+    });
+  }
+}
+
+function buildLyrics(lines) {
+  tv.lyr.innerHTML = lines.map((l, i) => `<p class="${i % 2 ? "R" : "L"}">${esc(l)}</p>`).join("");
+  const lh = isMobile() ? 12 : 14, y = { L: 0, R: lh * 0.5 };
+  tv.lines = [...tv.lyr.querySelectorAll("p")].map((p) => {
+    const side = p.classList.contains("L") ? "L" : "R";
+    const ln = { p, side, w: p.offsetWidth, h: p.offsetHeight, y0: y[side], x: null };
+    y[side] += ln.h + (isMobile() ? 6 : 8);
+    return ln;
+  });
+  tv.streamH = Math.max(y.L, y.R);
+}
+
+function carEdges(frame, y) {
+  const { meta, rect } = tv, prof = meta.frames[frame].profile, n = prof.length;
+  const r = Math.floor((y - rect.y) / rect.h * n);
+  let l = 1, rr = 0;
+  for (let k = r - 2; k <= r + 2; k++) { const p = prof[k]; if (p) { l = Math.min(l, p[0]); rr = Math.max(rr, p[1]); } }
+  return l > rr ? null : [rect.x + l * rect.w, rect.x + rr * rect.w];
+}
+
+function tvTick(t) {
+  if (!tv.el || !tv.img) return;
+  const cv = tv.cv, dpr = Math.min(devicePixelRatio, 2);
+  const W = cv.clientWidth, H = cv.clientHeight;
+  if (!W || !H) return;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const { meta, img: im, ctx } = tv;
+  const n = meta.frames.length, frame = Math.floor(t * 11) % n;            // one turn every ~4.4 s, frames in order
+  const cw = Math.min(W * (isMobile() ? 0.92 : 0.6), H * 0.9 * meta.cellW / meta.cellH);
+  const ch = cw * meta.cellH / meta.cellW;
+  tv.rect = { x: (W - cw) / 2, y: H * 0.5 - ch / 2, w: cw, h: ch };
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const c = frame % meta.cols, r = Math.floor(frame / meta.cols);
+  ctx.drawImage(im, c * meta.cellW, r * meta.cellH, meta.cellW, meta.cellH, tv.rect.x, tv.rect.y, cw, ch);
+  // lyrics stream up through the stage over the length of the track
+  const prog = tv.progress || 0, travel = prog * (tv.streamH + H);
+  const gap = isMobile() ? 6 : 12, cx = W / 2;
+  let cur = null;
+  for (const ln of tv.lines) {
+    const y = H - 8 + ln.y0 - travel;
+    if (y < -20 || y > H) { ln.p.style.visibility = "hidden"; ln.x = null; continue; }
+    ln.p.style.visibility = "visible";
+    const e = carEdges(frame, y + ln.h / 2) || [cx - 6, cx + 6];
+    let tx = ln.side === "L" ? e[0] - gap - ln.w : e[1] + gap;
+    tx = Math.max(6, Math.min(W - 6 - ln.w, tx));
+    ln.x = ln.x == null ? tx : ln.x + (tx - ln.x) * 0.3;
+    ln.p.style.transform = `translate3d(${ln.x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+    if (y > H * 0.45 && y < H * 0.55) cur = ln;
+  }
+  for (const ln of tv.lines) ln.p.classList.toggle("cur", ln === cur);
+}
+
+$("#exitTracks").addEventListener("click", (e) => {
+  const row = e.target.closest(".tr.playable");
+  if (row) openTrack(row);
+});
+
 // ---------------------------------------------------------------- loop
 const clock = new THREE.Clock();
 function frame() {
@@ -572,6 +712,7 @@ function frame() {
     renderer.render(scene, camera);
     flowText(a);
   }
+  tvTick(t);
   // Xanax bars on slide 3, only while it is on screen
   const pr = pillCv.getBoundingClientRect();
   if (pr.bottom > 0 && pr.top < innerHeight) drawPills(dt);

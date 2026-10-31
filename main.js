@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=55";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=56";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "55";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "56";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -1054,42 +1054,57 @@ function bindWidget(token) {
 }
 
 function buildLyrics(lines, words, stanza) {
-  // a long line is broken into short ones on its own side, so it does not reach into the other side's text.
-  // With word times every letter knows its word (data-w), and every shown line starts when its
-  // first word is sung
+  // every line reads left to right across the object: its first half on the left of it, the rest
+  // on the right, on one row; a long line takes several rows. Later rows sit above earlier ones
+  // (the text falls as the song goes on). With word times every letter knows its word (data-w),
+  // and every piece starts when its first word is sung
   tv.words = words ? words.flat() : null;
-  const starts = [];
-  let wi = 0, side = 0;
+  const max = isMobile() ? 22 : 30, starts = [];
+  const halves = (l) => {
+    const w = l.split(" ");
+    if (w.length < 2) return [l];
+    let best = 1;
+    for (let k = 1; k < w.length; k++) {
+      const d = Math.abs(w.slice(0, k).join(" ").length - w.slice(k).join(" ").length);
+      if (d < Math.abs(w.slice(0, best).join(" ").length - w.slice(best).join(" ").length)) best = k;
+    }
+    return [w.slice(0, best).join(" "), w.slice(best).join(" ")];
+  };
+  let wi = 0, row = 0;
   tv.lyr.innerHTML = lines.flatMap((l, i) => {
-    if (stanza && i && stanza[i] !== stanza[i - 1]) side = 0;     // every stanza starts on the left
-    const sd = side++ % 2 ? "R" : "L", st = stanza ? stanza[i] : 0;
-    return breakLine(l, isMobile() ? 22 : 30).map((part) => {
-    if (tv.words) starts.push(tv.words[wi][0]);
-    const html = part.split(" ").map((w) => {
-      const word = [...w].map((c) => `<span${tv.words ? ` data-w="${wi}"` : ""}>${esc(c)}</span>`).join("");
-      wi++;
-      return word;
-    }).join("<span> </span>");
-    return `<p class="${sd}" data-s="${st}">${html}</p>`;
+    const st = stanza ? stanza[i] : 0;
+    const parts = breakLine(l, max);
+    const pieces = parts.length === 1 ? halves(l) : parts;
+    return pieces.map((part, q) => {
+      if (q && q % 2 === 0) row++;
+      if (tv.words) starts.push(tv.words[wi][0]);
+      const html = part.split(" ").map((w) => {
+        const word = [...w].map((c) => `<span${tv.words ? ` data-w="${wi}"` : ""}>${esc(c)}</span>`).join("");
+        wi++;
+        return word;
+      }).join("<span> </span>");
+      const out = `<p class="${q % 2 ? "R" : "L"}" data-s="${st}" data-r="${row}">${html}</p>`;
+      if (q === pieces.length - 1) row++;
+      return out;
     });
   }).join("");
   if (tv.words && !tv.times) tv.times = starts;
-  const lh = isMobile() ? 12 : 14, y = { L: 0, R: lh * 0.5 };
-  let lastSt = "0";
+  const lh = isMobile() ? 12 : 14, gap = isMobile() ? 6 : 8;
+  let y = 0, lastRow = "0", lastSt = "0", rowH = 0;
   tv.lines = [...tv.lyr.querySelectorAll("p")].map((p) => {
     const side = p.classList.contains("L") ? "L" : "R";
-    if (p.dataset.s !== lastSt) {                              // a gap of two lines between stanzas
-      lastSt = p.dataset.s;
-      y.L = y.R = Math.max(y.L, y.R) + lh * 2;
-      y.R += lh * 0.5;
+    if (p.dataset.r !== lastRow) {                             // next row
+      lastRow = p.dataset.r;
+      y += rowH + gap; rowH = 0;
+      if (p.dataset.s !== lastSt) { lastSt = p.dataset.s; y += lh * 2; }   // a gap of two lines between stanzas
     }
     // letter offsets measured once in normal flow, then every letter is placed by hand
     const chars = [...p.children].map((el) => ({ el, x: el.offsetLeft, w: el.offsetWidth, wi: el.dataset.w == null ? -1 : +el.dataset.w, k: 0, e: 0 }));
-    const ln = { p, side, chars, w: p.offsetWidth, h: p.offsetHeight, y0: y[side], x: null };
-    y[side] += ln.h + (isMobile() ? 6 : 8);
+    const ln = { p, side, chars, w: p.offsetWidth, h: p.offsetHeight, y0: y, x: null };
+    rowH = Math.max(rowH, ln.h);
     return ln;
   });
-  tv.streamH = Math.max(y.L, y.R);
+  tv.streamH = y + rowH;
   tv.lines.forEach((ln) => { ln.p.classList.add("bent"); ln.p.style.transform = "none"; });
 }
 

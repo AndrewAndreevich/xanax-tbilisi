@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fire Lab — Xanax Tbilisi</title>
+<meta name="theme-color" content="#000000">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@700&family=IBM+Plex+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --red: #ff0a0a; --dim: #6d6d6d; --mono: "IBM Plex Mono", ui-monospace, monospace; --disp: "Chakra Petch", sans-serif; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #000; color: #eee; font: 500 10px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .02em; overflow-x: hidden; }
+  header { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; padding: 10px 16px; background: rgba(0,0,0,.85); border-bottom: 1px solid #333; }
+  header h1 { font: 700 14px var(--disp); }
+  header a { color: var(--dim); text-decoration: none; }
+  header a:hover { color: #fff; }
+  label { display: flex; align-items: center; gap: 8px; color: var(--dim); }
+  input[type=range] { width: 120px; accent-color: var(--red); }
+  section { position: relative; height: 72vh; min-height: 380px; border-bottom: 1px solid #222; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .tag { position: absolute; left: 16px; top: 14px; z-index: 2; max-width: calc(100% - 32px); }
+  .tag b { display: block; font: 700 clamp(40px, 8vw, 96px)/.9 var(--disp); color: #fff; }
+  .tag span { display: block; margin-top: 6px; font-size: 11px; font-weight: 700; }
+  .tag em { display: block; font-style: normal; color: var(--dim); text-transform: none; font-size: 11px; margin-top: 2px; }
+  footer { padding: 24px 16px 40px; color: var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>FIRE LAB // ВЫБЕРИ ОГОНЬ</h1>
+  <label>ВЫСОТА <input id="flame" type="range" min="0.25" max="0.8" step="0.01" value="0.55"></label>
+  <label>СИЛА <input id="strength" type="range" min="0.5" max="1.6" step="0.01" value="1"></label>
+  <a href="./">← НА САЙТ</a>
+</header>
+<main id="lab"></main>
+<footer>Все варианты используют одну палитру и один дизеринг с горящей фигурой Арсения. Внизу каждой панели белый слайд, огонь растёт из его края. Назови букву.</footer>
+
+<script type="module">
+  import { VARIANTS, createEdgeFire } from "./fire.js?v=1";
+  const lab = document.getElementById("lab");
+  const fires = VARIANTS.map((v, i) => {
+    const sec = document.createElement("section");
+    sec.innerHTML = `<canvas></canvas><div class="tag"><b>${"ABCDE"[i]}</b><span>${v.name}</span><em>${v.note}</em></div>`;
+    lab.appendChild(sec);
+    const f = createEdgeFire(sec.querySelector("canvas"), { variant: i });
+    return { sec, f, visible: false };
+  });
+  const layout = () => fires.forEach(({ sec, f }) => {
+    if (!f) return;
+    f.resize();
+    const h = sec.clientHeight;
+    f.state.edge = h * 0.3;
+    f.state.flame = h * +document.getElementById("flame").value;
+  });
+  const io = new IntersectionObserver((es) => es.forEach((e) => {
+    const x = fires.find((q) => q.sec === e.target); if (x) x.visible = e.isIntersecting;
+  }));
+  fires.forEach((x) => io.observe(x.sec));
+  addEventListener("resize", layout);
+  document.getElementById("flame").addEventListener("input", layout);
+  document.getElementById("strength").addEventListener("input", (e) => fires.forEach(({ f }) => f && (f.state.strength = +e.target.value)));
+  layout();
+  const t0 = performance.now();
+  (function loop() {
+    const t = (performance.now() - t0) / 1000;
+    for (const x of fires) if (x.f && x.visible) x.f.render(t);
+    requestAnimationFrame(loop);
+  })();
+</script>
+</body>
+</html>

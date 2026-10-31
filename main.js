@@ -71,10 +71,15 @@ $("#tracks").innerHTML = TRACKS.map(([t, d], i) => `<li><span>${String(i + 1).pa
 $("#exitTracks").innerHTML = TRACKS.map(([t, d], i) => `<div><span>${String(i + 1).padStart(2, "0")} ${t}</span><b>${d}</b></div>`).join("");
 
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-$("#case").innerHTML = CASE.map((line, i) => {
+// one sentence per line, alternating sides of the figure
+const SENT = CASE.flatMap((line) => {
+  const red = line.startsWith("*");
+  return (red ? line.slice(1) : line).split(/(?<=\.) (?=\S)/).map((t) => (red ? "*" : "") + t);
+});
+$("#case").innerHTML = SENT.map((line, i) => {
   const red = line.startsWith("*");
   const txt = esc(red ? line.slice(1) : line).replace(/\[(.+?)\]/g, '<span class="g">$1</span>');
-  return `<p class="${i % 2 ? "R" : "L"}${red ? " hit" : ""}" data-t="${i}">${txt}</p>`;
+  return `<p class="${i % 2 ? "R" : "L"}${red ? " hit" : ""}">${txt}</p>`;
 }).join("");
 
 // scramble each line in as it enters the viewport
@@ -163,143 +168,165 @@ function drawTerrain(cv, color, seed, gain) {
   }
 }
 
-// ---------------------------------------------------------------- point-cloud figure (placeholder body)
-// Capsules: [ax,ay,az, bx,by,bz, radius, scaleX, scaleZ]. Swap for the impostor later.
-const BODY = [
-  // legs
-  [-0.10, 0.95, 0, -0.11, 0.52, 0.03, 0.080, 1, 1], [-0.11, 0.52, 0.03, -0.12, 0.09, -0.01, 0.062, 1, 1],
-  [-0.12, 0.05, -0.02, -0.12, 0.04, 0.15, 0.048, 1.1, 1],
-  [0.10, 0.95, 0, 0.12, 0.52, 0.01, 0.080, 1, 1], [0.12, 0.52, 0.01, 0.13, 0.09, -0.02, 0.062, 1, 1],
-  [0.13, 0.05, -0.03, 0.14, 0.04, 0.14, 0.048, 1.1, 1],
-  // pelvis, torso (hoodie), shoulders, neck
-  [-0.12, 0.97, 0, 0.12, 0.97, 0, 0.11, 1, 1],
-  [0, 0.98, 0, 0, 1.40, 0, 0.175, 1.18, 0.72],
-  [-0.20, 1.41, 0, 0.20, 1.41, 0, 0.085, 1, 1],
-  [0, 1.44, 0, 0, 1.56, 0.01, 0.06, 1, 1],
-  // head + cap
-  [0, 1.64, 0.01, 0, 1.70, 0.01, 0.098, 1, 1.05],
-  [0, 1.735, 0.0, 0, 1.745, 0.0, 0.105, 1, 1],
-  [-0.06, 1.72, 0.11, 0.06, 1.72, 0.11, 0.022, 1, 2.2],
-  // left arm hanging
-  [-0.23, 1.40, 0, -0.27, 1.14, -0.01, 0.060, 1, 1], [-0.27, 1.14, -0.01, -0.28, 0.90, 0.03, 0.048, 1, 1],
-  [-0.28, 0.86, 0.04, -0.28, 0.82, 0.05, 0.045, 1, 1],
-  // right arm raised to the face — the vape
-  [0.23, 1.40, 0, 0.25, 1.16, 0.13, 0.060, 1, 1], [0.25, 1.16, 0.13, 0.08, 1.49, 0.15, 0.048, 1, 1],
-  [0.07, 1.53, 0.15, 0.05, 1.57, 0.15, 0.045, 1, 1],
-  [0.045, 1.57, 0.16, 0.02, 1.64, 0.20, 0.012, 1, 1],
-];
-
-function buildCloud(N) {
-  const areas = BODY.map((c) => {
-    const len = Math.hypot(c[3] - c[0], c[4] - c[1], c[5] - c[2]);
-    return 2 * Math.PI * c[6] * len * (c[7] + c[8]) / 2 + 4 * Math.PI * c[6] * c[6];
-  });
-  const total = areas.reduce((a, b) => a + b, 0);
-  const pos = new Float32Array(N * 3), nor = new Float32Array(N * 3), rnd = new Float32Array(N);
-  const a = new THREE.Vector3(), b = new THREE.Vector3(), ax = new THREE.Vector3(), d = new THREE.Vector3(), p = new THREE.Vector3();
-  let k = 0;
-  BODY.forEach((c, ci) => {
-    const n = ci === BODY.length - 1 ? N - k : Math.round(N * areas[ci] / total);
-    a.set(c[0], c[1], c[2]); b.set(c[3], c[4], c[5]);
-    ax.subVectors(b, a); const len = ax.length(); ax.normalize();
-    const capShare = (4 * Math.PI * c[6] * c[6]) / areas[ci];
-    for (let i = 0; i < n && k < N; i++, k++) {
-      d.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize();
-      let t;
-      if (Math.random() < capShare) {                 // hemispherical caps
-        const end = d.dot(ax) > 0;
-        t = end ? 1 : 0;
-      } else {                                        // tube: strip the axial part
-        d.addScaledVector(ax, -d.dot(ax)).normalize();
-        t = Math.random();
-      }
-      p.copy(a).addScaledVector(ax, t * len);
-      const off = d.clone().multiplyScalar(c[6]);
-      off.x *= c[7]; off.z *= c[8];
-      p.add(off);
-      pos.set([p.x, p.y, p.z], k * 3);
-      nor.set([d.x / c[7], d.y, d.z / c[8]], k * 3);
-      rnd[k] = Math.random();
-    }
-  });
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  g.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
-  g.setAttribute("rnd", new THREE.BufferAttribute(rnd, 1));
-  return g;
-}
-
+// ---------------------------------------------------------------- impostor figure (char01 ring16)
+// 16 views round one ring (assets/arseny_body.*, built by tools/build_impostor.py).
+// The quad picks two neighbouring frames by yaw and crossfades them; the look
+// (ordered dither, RGB split, glitch bands) is all in the fragment shader.
 const VERT = /* glsl */`
-  attribute float rnd;
-  uniform float uTime, uSize, uGlitch;
-  uniform vec2 uOff;
-  varying float vB;
-  void main() {
-    vec3 p = position;
-    float band = floor(p.y * 38.0);
-    float g = step(0.93, fract(sin(band * 91.7 + floor(uTime * 9.0)) * 4375.85)) * uGlitch;
-    p.x += g * (fract(sin(band * 13.1) * 917.3) - 0.5) * 0.35;
-    p += normal * 0.004 * sin(uTime * 2.0 + rnd * 40.0);
-    vec4 mv = modelViewMatrix * vec4(p, 1.0);
-    vec3 n = normalize(normalMatrix * normal);
-    vec3 L = normalize(vec3(-0.45, 0.55, 0.7));
-    float lam = max(dot(n, L), 0.0);
-    float rim = pow(1.0 - abs(n.z), 3.0);
-    vB = 0.02 + 0.8 * lam * lam + 0.3 * rim;
-    gl_Position = projectionMatrix * mv;
-    gl_Position.xy += uOff * gl_Position.w;
-    gl_PointSize = uSize * (0.75 + rnd * 0.5);
-  }`;
+  varying vec2 vUv;
+  void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 const FRAG = /* glsl */`
-  uniform vec3 uColor;
-  varying float vB;
-  float bayer(vec2 f) {
-    ivec2 i = ivec2(mod(f, 4.0));
-    int idx = i.y * 4 + i.x;
-    float m[16] = float[16](0.,8.,2.,10.,12.,4.,14.,6.,3.,11.,1.,9.,15.,7.,13.,5.);
-    for (int k = 0; k < 16; k++) if (k == idx) return (m[k] + 0.5) / 16.0;
-    return 0.5;
+  uniform sampler2D uAtlas;
+  uniform vec2 uGrid;
+  uniform float uA, uB, uMix, uTime, uGlitch, uSplit, uPix;
+  varying vec2 vUv;
+  float bayer2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
+  float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
+  vec4 cell(float f, vec2 uv) {
+    if (uv.x < 0.0 || uv.x > 1.0) return vec4(0.0);
+    float c = mod(f, uGrid.x), r = floor(f / uGrid.x);
+    return texture2D(uAtlas, vec2((c + uv.x) / uGrid.x, 1.0 - (r + 1.0 - uv.y) / uGrid.y));
   }
+  vec4 view(vec2 uv) { return mix(cell(uA, uv), cell(uB, uv), uMix); }
   void main() {
-    if (vB < bayer(gl_FragCoord.xy)) discard;
-    gl_FragColor = vec4(uColor * min(vB, 1.0), 1.0);
+    vec2 uv = vUv;
+    float band = floor(uv.y * 70.0);
+    float g = step(0.94, fract(sin(band * 91.7 + floor(uTime * 10.0)) * 4375.85)) * uGlitch;
+    uv.x += g * (fract(sin(band * 13.1) * 917.3) - 0.5) * 0.25;
+    vec4 cr = view(uv + vec2(uSplit, 0.0));
+    vec4 cg = view(uv);
+    vec4 cb = view(uv - vec2(uSplit, 0.0));
+    float t = bayer4(gl_FragCoord.xy / uPix);
+    float a = max(cg.a, max(cr.a, cb.a));
+    if (a < t * 0.9 + 0.05) discard;
+    vec3 c = vec3(cr.r, cg.g, cb.b);
+    float l = dot(cg.rgb, vec3(0.299, 0.587, 0.114));
+    l = clamp((l - 0.04) * 1.5, 0.0, 1.0);
+    float q = floor(l * 3.0 + t) / 3.0;                       // 4 dithered tones
+    vec3 col = mix(vec3(q), c * 1.25, 0.32);
+    col *= 0.82 + 0.18 * step(0.5, fract(gl_FragCoord.y / (uPix * 2.0)));   // scanlines
+    gl_FragColor = vec4(col, 1.0);
   }`;
 
 const canvas = $("#stage");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 50);
-const fig = new THREE.Group();
-scene.add(fig);
-
-const geo = buildCloud(isMobile() ? 26000 : 52000);
-geo.translate(0, -0.9, 0);
-const channels = [[1, 0.1, 0.1], [0.1, 1, 0.25], [0.2, 0.3, 1]].map((col, i) => {
-  const m = new THREE.ShaderMaterial({
-    vertexShader: VERT, fragmentShader: FRAG, transparent: true, depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    uniforms: { uColor: { value: new THREE.Vector3(...col) }, uTime: { value: 0 }, uSize: { value: 2 }, uGlitch: { value: 0 }, uOff: { value: new THREE.Vector2() } },
-  });
-  m.userData.i = i;
-  fig.add(new THREE.Points(geo, m));
-  return m;
+const camera = new THREE.OrthographicCamera(0, 1, 0, -1, -1, 1);   // pixel space, y down via negative
+const figMat = new THREE.ShaderMaterial({
+  vertexShader: VERT, fragmentShader: FRAG, transparent: true,
+  uniforms: {
+    uAtlas: { value: null }, uGrid: { value: new THREE.Vector2(8, 2) },
+    uA: { value: 0 }, uB: { value: 1 }, uMix: { value: 0 }, uTime: { value: 0 },
+    uGlitch: { value: 0 }, uSplit: { value: 0.004 }, uPix: { value: 2 },
+  },
 });
+const figQuad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), figMat);
+scene.add(figQuad);
+
+let BODY = null;                                     // atlas json: grid + silhouette profiles
+const fig = { x: 0, y: 0, w: 0, h: 0 };              // figure rect on screen, css px
+
+function layoutFigure() {
+  if (!BODY) return;
+  fig.h = innerHeight * (isMobile() ? 0.66 : 0.74);
+  fig.w = fig.h * BODY.cellW / BODY.cellH;
+  fig.x = innerWidth / 2 - fig.w / 2;
+  fig.y = innerHeight * (isMobile() ? 0.5 : 0.48) - fig.h / 2;
+  figQuad.scale.set(fig.w, fig.h, 1);
+  figQuad.position.set(fig.x + fig.w / 2, -(fig.y + fig.h / 2), 0);
+}
+
+// silhouette edges at a screen y, from the nearest frame, widened a few rows for air
+function edges(frame, y) {
+  if (!BODY) return null;
+  const prof = BODY.frames[frame].profile, n = prof.length;
+  const r = Math.floor((y - fig.y) / fig.h * n);
+  let l = 1, rr = 0;
+  for (let k = r - 3; k <= r + 3; k++) {
+    const p = prof[k];
+    if (p) { l = Math.min(l, p[0]); rr = Math.max(rr, p[1]); }
+  }
+  if (l > rr) return null;
+  return [fig.x + l * fig.w, fig.x + rr * fig.w];
+}
+
+// ---------------------------------------------------------------- case-file text flowing round the silhouette
+const lines = [...document.querySelectorAll(".case p")].map((el) => ({ el, side: el.classList.contains("L") ? -1 : 1, y0: 0, w: 0, h: 0, x: null }));
+let streamH = 0;
+function measureLines() {
+  const lh = isMobile() ? 13 : 14;
+  const y = { "-1": 0, 1: lh * 0.5 };                 // right stream sits half a line lower
+  for (const ln of lines) {
+    ln.w = ln.el.offsetWidth; ln.h = ln.el.offsetHeight;
+    ln.y0 = y[ln.side];
+    y[ln.side] += ln.h + (isMobile() ? 3 : 4);
+  }
+  streamH = Math.max(y[-1], y[1]);
+}
+
+let p1s = 0, panelW = 0;
+function flowText(frame) {
+  const gap = isMobile() ? 6 : 10, gut = isMobile() ? 4 : panelW + 8;
+  const travel = p1s * (streamH + innerHeight * 1.05);
+  const cx = innerWidth / 2;
+  for (const ln of lines) {
+    const y = innerHeight * 0.98 + ln.y0 - travel;
+    if (y < -40 || y > innerHeight + 10) { ln.el.style.visibility = "hidden"; ln.x = null; continue; }
+    ln.el.style.visibility = "visible";
+    const e = edges(frame, y + ln.h / 2) || [cx - 4, cx + 4];
+    let tx = ln.side < 0 ? e[0] - gap - ln.w : e[1] + gap;
+    tx = ln.side < 0 ? Math.max(tx, gut) : Math.min(tx, innerWidth - gut - ln.w);
+    ln.x = ln.x == null ? tx : ln.x + (tx - ln.x) * 0.3;
+    ln.el.style.transform = `translate3d(${ln.x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+  }
+}
+
+// ---------------------------------------------------------------- slide-2 head: bust impostor, dithered to ink
+const headCv = $("#head"), headCtx = headCv.getContext("2d", { willReadFrequently: true });
+const HEAD_RES = 400;
+headCv.width = headCv.height = HEAD_RES;
+let bustImg = null, bustMeta = null, headFrame = -1;
+const headCache = new Map();
+function drawHead(f) {
+  if (!bustImg || f === headFrame) return;
+  headFrame = f;
+  if (!headCache.has(f)) {
+    const off = document.createElement("canvas");
+    off.width = off.height = HEAD_RES;
+    const o = off.getContext("2d", { willReadFrequently: true });
+    const c = bustMeta.cell, col = f % bustMeta.cols, row = Math.floor(f / bustMeta.cols);
+    o.drawImage(bustImg, col * c, row * c, c, c, 0, 0, HEAD_RES, HEAD_RES);
+    const img = o.getImageData(0, 0, HEAD_RES, HEAD_RES), d = img.data;
+    const TONES = [[14, 14, 14], [118, 118, 118], [236, 236, 236]];
+    for (let y = 0; y < HEAD_RES; y++) for (let x = 0; x < HEAD_RES; x++) {
+      const i = (y * HEAD_RES + x) * 4;
+      if (d[i + 3] < 128) { d[i + 3] = 0; continue; }
+      let l = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
+      l = clamp((l - 0.06) * 1.45);
+      const q = Math.min(2, Math.floor(l * 2 + BAYER[(y & 3) * 4 + (x & 3)]));
+      [d[i], d[i + 1], d[i + 2]] = TONES[q]; d[i + 3] = 255;
+    }
+    headCache.set(f, img);
+  }
+  headCtx.putImageData(headCache.get(f), 0, 0);
+}
+// head turns away and back while the cross rotates
+const HEAD_SEQ = [0, 15, 14, 13, 12, 13, 14, 15, 0, 1, 2, 3, 4];
 
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
-  camera.aspect = w / h;
-  const figH = isMobile() ? 2.7 : 3.3;                     // world units visible vertically
-  camera.position.set(0, 0, figH / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))));
+  camera.left = 0; camera.right = w; camera.top = 0; camera.bottom = -h;
   camera.updateProjectionMatrix();
-  const px = renderer.getPixelRatio();
-  channels.forEach((m) => (m.uniforms.uSize.value = (isMobile() ? 1.4 : 1.7) * px));
+  figMat.uniforms.uPix.value = (isMobile() ? 1.5 : 2) * renderer.getPixelRatio();
+  layoutFigure();
+  measureLines();
+  panelW = $(".panel.left").offsetWidth;
   drawTerrain($("#terrainDark"), "#2b2b2b", 3.1, 1.25);
   drawTerrain($("#terrainLight"), "#bdbdbd", 7.7, 1.5);
 }
 addEventListener("resize", resize);
-resize();
 
 // ---------------------------------------------------------------- input / HUD
 const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
@@ -314,14 +341,13 @@ const tickClock = () => ($("#clock").textContent = clockFmt.format(new Date()));
 tickClock(); setInterval(tickClock, 1000);
 
 const trackEls = [...document.querySelectorAll("#tracks li")];
-const s1 = $("#s1"), s2 = $("#s2"), cross = $("#cross"), head = $("#head"), bignum = $("#bignum");
+const s1 = $("#s1"), s2 = $("#s2"), cross = $("#cross"), bignum = $("#bignum");
 const NUMS = ["2022", "+995", "6.66", "0300"];
 let p1 = 0, lastTrack = -1, glitchT = 0;
 
 function onScroll() {
   const r1 = s1.getBoundingClientRect();
   p1 = clamp(-r1.top / (r1.height - innerHeight));
-  document.documentElement.style.setProperty("--p", p1);
   $("#progBar").style.setProperty("--p", p1);
   const ti = Math.min(TRACKS.length - 1, Math.floor(p1 * TRACKS.length));
   if (ti !== lastTrack) { trackEls[lastTrack]?.classList.remove("on"); trackEls[ti].classList.add("on"); lastTrack = ti; glitchT = 0.35; }
@@ -332,42 +358,63 @@ function onScroll() {
   cross.style.setProperty("--rot", `${-28 * p2}deg`);
   cross.style.setProperty("--sc", 0.85 + 0.15 * enter + 0.12 * p2);
   cross.style.setProperty("--mx", clamp((p2 - 0.3) * 3));
-  head.style.setProperty("--hy", `${(1 - enter) * 22}vh`);
+  headCv.style.setProperty("--hy", `${(1 - enter) * 22}vh`);
+  drawHead(HEAD_SEQ[Math.round(p2 * (HEAD_SEQ.length - 1))]);
   bignum.textContent = NUMS[Math.min(NUMS.length - 1, Math.floor(p2 * NUMS.length))];
   canvas.style.visibility = r2.top > 0 ? "visible" : "hidden";
   $("#terrainDark").style.visibility = canvas.style.visibility;
 }
 addEventListener("scroll", onScroll, { passive: true });
-onScroll();
 
 // ---------------------------------------------------------------- loop
 const clock = new THREE.Clock();
 function frame() {
-  const dt = clock.getDelta(), t = clock.elapsedTime;
+  const dt = Math.min(clock.getDelta(), 0.1), t = clock.elapsedTime;
   mouse.x += (mouse.tx - mouse.x) * 0.06;
-  mouse.y += (mouse.ty - mouse.y) * 0.06;
-  if (canvas.style.visibility !== "hidden") {
-    fig.rotation.y = p1 * Math.PI * 2.4 + mouse.x * 0.25 + Math.sin(t * 0.4) * 0.05;
-    fig.rotation.x = mouse.y * 0.06;
+  p1s += (p1 - p1s) * Math.min(1, dt * 7);
+  if (BODY && canvas.style.visibility !== "hidden") {
+    const n = BODY.frames.length;
+    const yaw = p1s * 2.25 + mouse.x * 0.06 + Math.sin(t * 0.35) * 0.01;   // turns
+    const f = ((yaw * n) % n + n) % n;
+    const a = Math.floor(f);
     glitchT = Math.max(0, glitchT - dt);
-    const spike = Math.random() < 0.01 ? 0.25 : 0;
-    const split = 0.0025 + glitchT * 0.02;
-    channels.forEach((m, i) => {
-      m.uniforms.uTime.value = t;
-      m.uniforms.uGlitch.value = Math.max(glitchT * 2, spike);
-      m.uniforms.uOff.value.set((i - 1) * split, (i - 1) * split * 0.3);
-    });
+    const spike = Math.random() < 0.012 ? 0.3 : 0;
+    figMat.uniforms.uA.value = a;
+    figMat.uniforms.uB.value = (a + 1) % n;
+    figMat.uniforms.uMix.value = f - a;
+    figMat.uniforms.uTime.value = t;
+    figMat.uniforms.uGlitch.value = Math.max(glitchT * 2, spike);
+    figMat.uniforms.uSplit.value = 0.003 + glitchT * 0.02;
     renderer.render(scene, camera);
+    flowText(Math.round(f) % n);
   }
   requestAnimationFrame(frame);
 }
 
-// ---------------------------------------------------------------- loader
-let ln = 0;
+// ---------------------------------------------------------------- load assets, then start
+const loadNum = $("#loadNum"), loadBar = $("#loadBar");
+let shown = 0, target = 5;
 const lt = setInterval(() => {
-  ln = Math.min(100, ln + 4 + Math.random() * 9);
-  $("#loadNum").textContent = String(ln | 0).padStart(3, "0");
-  $("#loadBar").style.transform = `scaleX(${ln / 100})`;
-  if (ln >= 100) { clearInterval(lt); $("#loader").classList.add("done"); }
-}, 45);
-frame();
+  shown = Math.min(target, shown + 3 + Math.random() * 6);
+  loadNum.textContent = String(shown | 0).padStart(3, "0");
+  loadBar.style.transform = `scaleX(${shown / 100})`;
+  if (shown >= 100) { clearInterval(lt); $("#loader").classList.add("done"); }
+}, 40);
+const img = (src) => new Promise((ok, err) => { const i = new Image(); i.onload = () => ok(i); i.onerror = err; i.src = src; });
+const tex = new THREE.TextureLoader();
+Promise.all([
+  fetch("assets/arseny_body.json").then((r) => r.json()).then((j) => { target += 30; return j; }),
+  fetch("assets/arseny_bust.json").then((r) => r.json()),
+  tex.loadAsync("assets/arseny_body.webp").then((t) => { target += 35; return t; }),
+  img("assets/arseny_bust.webp").then((i) => { target += 25; return i; }),
+  document.fonts.ready,
+]).then(([body, bustJ, atlas, bust]) => {
+  BODY = body; bustMeta = bustJ; bustImg = bust;
+  atlas.minFilter = THREE.LinearFilter; atlas.generateMipmaps = false;
+  figMat.uniforms.uAtlas.value = atlas;
+  figMat.uniforms.uGrid.value.set(body.cols, body.rows);
+  target = 100;
+  resize();
+  onScroll();
+  frame();
+});

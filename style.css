@@ -83,14 +83,17 @@ em { font-style: normal; color: var(--dim); }
 .cta { border: 1px solid #fff; padding: 3px 8px; font-weight: 700; }
 
 /* ---------- slide 1 ---------- */
-#s1 { position: relative; z-index: 5; padding: 70vh 0 50vh; }
-.case { position: relative; width: 100%; padding: 0 300px; --gap: min(8vw, 115px); }
+#s1 { position: relative; z-index: 5; height: 520vh; }
+.s1-sticky { position: sticky; top: 0; height: 100vh; overflow: hidden; }
+/* each line is placed every frame by main.js along the figure's silhouette */
+.case { position: absolute; inset: 0; pointer-events: none; }
 .case p {
-  font-family: var(--disp); font-weight: 700; font-size: 10.5px; line-height: 1.25;
-  width: 50%; margin: 0 0 13px; color: #f4f4f4;
+  position: absolute; left: 0; top: 0; visibility: hidden; will-change: transform;
+  font-family: var(--disp); font-weight: 700; font-size: 8.5px; line-height: 1.2;
+  white-space: nowrap; color: #f4f4f4;
 }
-.case p.L { text-align: right; padding-right: var(--gap); }
-.case p.R { text-align: left; margin-left: 50%; padding-left: var(--gap); }
+.case p.L { text-align: right; }
+.case p.R { text-align: left; }
 .case p.hit { color: var(--red); }
 .case p .g { color: #000; background: #fff; padding: 0 2px; }
 
@@ -109,7 +112,7 @@ em { font-style: normal; color: var(--dim); }
 .cross .mini-x::after { top: 40%; height: 20%; left: 0; width: 100%; }
 .cross .q1 { left: 17%; top: 17%; } .cross .q2 { right: 17%; top: 17%; }
 .cross .q3 { left: 17%; bottom: 17%; } .cross .q4 { right: 17%; bottom: 17%; }
-.head { position: absolute; left: 50%; bottom: 0; height: 86vh; max-width: 92vw; object-fit: contain; object-position: bottom; transform: translate(-50%, var(--hy, 0)); filter: drop-shadow(0 0 0 #000); }
+.head { position: absolute; left: 50%; bottom: 0; height: 86vh; aspect-ratio: 1; image-rendering: pixelated; transform: translate(-50%, var(--hy, 0)); }
 .bignum {
   position: absolute; left: 27%; top: 52%; transform: translate(-50%, -50%) rotate(-90deg);
   font-family: var(--disp); font-weight: 700; font-size: clamp(64px, 11vw, 170px); line-height: 1; color: #858585; letter-spacing: -.02em;
@@ -138,7 +141,6 @@ em { font-style: normal; color: var(--dim); }
 /* ---------- tablet / mobile ---------- */
 @media (max-width: 1100px) {
   .panel { width: 220px; }
-  .case { padding: 0 230px; --gap: 9vw; }
   #s3 { padding-left: 230px; padding-right: 230px; }
 }
 @media (max-width: 820px) {
@@ -151,11 +153,9 @@ em { font-style: normal; color: var(--dim); }
   .bar .links a:not(:first-child) { display: none; }
   .clock { font-size: 9px; }
   .scroll-hint { right: var(--gutter); }
-  #s1 { padding-top: 85vh; }
-  .case { padding: 0 var(--gutter); --gap: 17vw; }
-  .case p { font-size: 9.5px; margin-bottom: 12px; }
+  .case p { font-size: 7.5px; white-space: normal; width: max-content; max-width: 44vw; }
   .cross { width: 150vw; top: 44%; }
-  .head { height: 64vh; }
+  .head { height: auto; width: 125vw; }
   .bignum { left: 12%; top: 40%; font-size: 72px; }
   .geo { right: var(--gutter); top: 11vh; }
   #s3 { padding: 14vh var(--gutter) 70px; }

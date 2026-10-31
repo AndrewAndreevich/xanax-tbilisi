@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Xanax Tbilisi — Arseny the Baptist</title>
+<meta name="description" content="Case file: Arseny Morozov, a.k.a. Arseny the Baptist. Xanax Tbilisi, 2022.">
+<meta name="theme-color" content="#000000">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Mono:wght@500;700&family=Noto+Sans+Georgian:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+
+<!-- loader -->
+<div id="loader"><span id="loadNum">000</span><i id="loadBar"></i></div>
+
+<!-- fixed 3D stage: point-cloud figure (placeholder until the impostor arrives) -->
+<canvas id="stage"></canvas>
+<canvas id="terrainDark" class="terrain"></canvas>
+
+<!-- HUD -->
+<div id="hud">
+  <aside class="panel left">
+    <div class="mini"><svg viewBox="0 0 20 40"><circle cx="10" cy="5" r="4"/><path d="M5 11h10l2 14h-3l-1 14h-6l-1-14H3z"/></svg></div>
+    <div class="row"><span class="tag">X <b id="mx">000</b></span><span class="tag">Y <b id="my">000</b></span></div>
+    <div class="row small"><span>// RUSSIANS GO HOME<br>XNX</span><span class="r">WHERE I'VE BEEN //<br>LAST 8 YEARS</span></div>
+    <div class="coord">41.6977° N</div>
+    <div class="row small lower"><span>DYING SWAN<br>S.L.O.N.</span><span>MORDOR CALLING<br>RADIO KABUL</span></div>
+    <div class="row small"><span>PROTOCOL<br>EXIT<br>2022</span><span>+995<br>NOT FOUND<br>FOREVER</span></div>
+    <div class="prog"><span>000</span><i id="progBar"></i><span>100</span></div>
+  </aside>
+
+  <aside class="panel right">
+    <div class="ticker"><div class="tick-in" id="roles"></div></div>
+    <div class="coord r">044.7987° E</div>
+    <ol id="tracks"></ol>
+    <div class="total"><span>[17]</span><span>31:14</span></div>
+  </aside>
+
+  <div class="scroll-hint">SCROLL</div>
+
+  <nav class="bar">
+    <div class="links"><a href="#s1">INDEX <em>+</em></a><a href="#s2">BAPTIST <em>+</em></a><a href="#s3">TRACKS <em>+</em></a></div>
+    <div class="clock"><span class="dot"></span>TBS GMT+4 <b id="clock">00:00:00</b></div>
+    <a class="cta" href="https://xanaxtbilisi.bandcamp.com/" target="_blank" rel="noopener">GO HOME <em>+</em></a>
+  </nav>
+</div>
+
+<main>
+  <!-- SLIDE 1 — figure with case-file text flowing around it -->
+  <section id="s1">
+    <div class="case" id="case"></div>
+  </section>
+
+  <!-- SLIDE 2 — head on the Georgian cross -->
+  <section id="s2">
+    <svg class="tear" viewBox="0 0 1000 60" preserveAspectRatio="none" id="tear"></svg>
+    <div class="s2-sticky">
+      <canvas id="terrainLight" class="terrain light"></canvas>
+      <div class="cross" id="cross">
+        <i class="bar-v"></i><i class="bar-h"></i>
+        <i class="mini-x q1"></i><i class="mini-x q2"></i><i class="mini-x q3"></i><i class="mini-x q4"></i>
+      </div>
+      <div class="bignum" id="bignum">2022</div>
+      <img class="head" id="head" src="assets/head_placeholder.svg" alt="Arseny the Baptist — placeholder bust">
+      <div class="glyphs" id="glyphs"></div>
+      <div class="geo">ბიჭი</div>
+    </div>
+  </section>
+
+  <!-- SLIDE 3 — tracks / exit -->
+  <section id="s3">
+    <h2 class="exit-title">XANAX<br>TBILISI</h2>
+    <p class="exit-sub">ARSENY MOROZOV // ARSENY THE BAPTIST // SONIC DEATH // PADLA BEAR OUTFIT</p>
+    <div class="exit-grid" id="exitTracks"></div>
+    <div class="exit-links">
+      <a href="https://xanaxtbilisi.bandcamp.com/" target="_blank" rel="noopener">BANDCAMP +</a>
+      <a href="https://open.spotify.com/album/3CEO3K8zh6bs0c9URZw1al" target="_blank" rel="noopener">SPOTIFY +</a>
+      <a href="https://arsenijthebaptist.bandcamp.com/" target="_blank" rel="noopener">ARSENY THE BAPTIST +</a>
+    </div>
+    <p class="exit-foot">FAN TRIBUTE. NOT AN OFFICIAL SITE. © 2022 XANAX TBILISI — ETERNITY</p>
+  </section>
+</main>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>

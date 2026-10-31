@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cloud Lab — Xanax Tbilisi</title>
+<meta name="description" content="Ten cloud designs for the seam between the white slide and the tracks.">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --paper: #f2f2f2; --red: #ff0a0a; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #000; color: #fff; font: 500 11px/1.4 "IBM Plex Mono", monospace; letter-spacing: .04em; }
+  header { padding: 22px 16px 18px; border-bottom: 1px solid #333; }
+  header h1 { font: 700 22px "Chakra Petch", sans-serif; letter-spacing: 0; }
+  header p { color: #888; margin-top: 4px; max-width: 70ch; }
+  section { position: relative; border-bottom: 1px solid #333; }
+  .label { position: absolute; left: 16px; bottom: 14px; z-index: 2; display: flex; gap: 10px; align-items: baseline; pointer-events: none; }
+  .label b { font: 700 40px/1 "Chakra Petch", sans-serif; color: var(--red); }
+  .label span { font-weight: 700; font-size: 12px; }
+  .label em { font-style: normal; color: #999; display: block; font-size: 10px; font-weight: 500; }
+  canvas { display: block; width: 100%; height: 72vh; min-height: 420px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CLOUD LAB // 10 VARIANTS</h1>
+  <p>The seam between the white slide (bottom of Arseny's torso) and the black tracks slide with the Xanax bars. Pick a letter.</p>
+</header>
+<main id="lab"></main>
+<script>
+const V = "1";
+const VARIANTS = [
+  ["A", "HALFTONE FOG", "dot-screen mist, dots shrink into the black; wisps drift over the torso"],
+  ["B", "1-BIT CUMULUS", "metaball clouds, two layers, old-Mac 1-bit dither with shading"],
+  ["C", "INK OUTLINE", "flat white clouds with a thick black outline, like the tiger drawing"],
+  ["D", "ETCHING", "engraved horizontal lines, thicker where the cloud is denser"],
+  ["E", "POSTER SMOKE", "billowing smoke in 5 flat grey steps, no dither"],
+  ["F", "ASCII", "clouds typed out in characters, paper above"],
+  ["G", "GLITCH BANK", "pixel clouds sliced into shifting bands with a red/cyan split"],
+  ["H", "PAPER CUT", "three layers of cut paper clouds with drop shadows, parallax"],
+  ["I", "XIANGYUN", "ornamental swirl clouds, outline + spirals, red accent"],
+  ["J", "PILL BANK", "the cloud is a heap of Xanax bars; single bars break off and fall"],
+];
+
+// ---------- shared
+const hash = (x, y) => { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); };
+function vnoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+const fbm = (x, y, o = 4) => { let s = 0, a = 0.5; for (let i = 0; i < o; i++) { s += a * vnoise(x, y); x *= 2; y *= 2; a *= 0.5; } return s; };
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
+const bay = (x, y) => BAYER[(y & 3) * 4 + (x & 3)];
+const img = (src) => new Promise((ok) => { const i = new Image(); i.onload = () => ok(i); i.src = `${src}?v=${V}`; });
+
+// metaball puffs along the seam, drifting; returns the field function for this frame
+// The cloud bank on the seam: a row of puffs bulging up over the torso, a row hanging down
+// into the black, a core between them so the seam itself is always covered. Puffs are spaced
+// closer than their radius, so both edges are scalloped and never straight.
+function bank(W, mid, t, o = {}) {
+  const r0 = (o.r || 46) * 0.7, h = o.h || r0 * 0.3, speed = o.speed || 8, C = [];
+  // up row: mostly small lobes with now and then a big dome rising higher over the torso;
+  // down row: smaller, more even lobes. Laid out along a strip that repeats every span px.
+  for (const [row, sp] of [[0, 0.7], [1, 1]]) {
+    const L = [];
+    let x = 0;
+    for (let i = 0; x < W + 6 * r0 || i < 4; i++) {
+      const k = hash(i, row + 1);
+      const r = row ? r0 * (0.55 + 0.55 * k) : r0 * (0.5 + 1.5 * k * k * k);
+      L.push([x, r]);
+      x += r * (0.95 + 0.35 * hash(i, row + 9));
+    }
+    const span = x;
+    for (const [x0, r] of L) {
+      const cx = ((x0 + t * speed * sp) % span + span) % span - 3 * r0;
+      const cy = row ? mid + h + (hash(x0, 4) - 0.5) * r0 * 0.4 : mid - h - (r - r0) * 0.35;
+      C.push([cx, cy, r, row]);
+    }
+  }
+  // s(x, y): how deep inside, in parts of a radius (> 0 inside)
+  const s = (x, y) => {
+    let v = (h - Math.abs(y - mid)) / r0;
+    for (const [cx, cy, r] of C) {
+      const dx = x - cx;
+      if (dx > r || dx < -r) continue;
+      const q = 1 - Math.hypot(dx, y - cy) / r;
+      if (q > v) v = q;
+    }
+    return v;
+  };
+  const path = () => {
+    const P = new Path2D();
+    for (const [x, y, r] of C) { P.moveTo(x + r, y); P.arc(x, y, r, 0, 6.283); }
+    P.rect(-10, mid - h, W + 20, 2 * h);
+    return P;
+  };
+  return { C, s, path, h, r0 };
+}
+
+// scene: paper + torso above the seam, black + drifting pills below; the variant draws its clouds on top
+let topImg, pillImg;
+function drawScene(g, W, H, mid, t, pillsAlpha = 0.3) {
+  g.fillStyle = "#f2f2f2"; g.fillRect(0, 0, W, mid);
+  const s = Math.max(W / topImg.width, mid / topImg.height);
+  const iw = topImg.width * s, ih = topImg.height * s;
+  g.drawImage(topImg, (W - iw) / 2, mid - ih, iw, ih);
+  g.fillStyle = "#000"; g.fillRect(0, mid, W, H - mid);
+  g.save();
+  g.beginPath(); g.rect(0, mid, W, H - mid); g.clip();
+  g.globalAlpha = pillsAlpha;
+  const pw = 96, ph = pw * pillImg.height / pillImg.width, sx = 150, sy = 74;
+  const dy = (t * 6) % sy, dx = (t * 2) % sx;
+  for (let row = -1, y = mid - sy + dy; y < H + sy; y += sy, row++) {
+    const st = (Math.floor((y - dy) / sy) & 1) ? sx / 2 : 0;
+    for (let x = -sx + dx + st; x < W + sx; x += sx) {
+      g.save(); g.translate(x, y); g.rotate(-0.32); g.drawImage(pillImg, -pw / 2, -ph / 2, pw, ph); g.restore();
+    }
+  }
+  g.restore();
+  g.globalAlpha = 1;
+}
+
+// low-res pixel layer helper: f(x, y) -> [r,g,b,a] or null, drawn scaled up without smoothing
+function pixels(g, W, H, cell, f, state) {
+  const w = Math.ceil(W / cell), h = Math.ceil(H / cell);
+  if (!state.cv || state.cv.width !== w || state.cv.height !== h) {
+    state.cv = document.createElement("canvas"); state.cv.width = w; state.cv.height = h;
+    state.cx = state.cv.getContext("2d"); state.im = state.cx.createImageData(w, h);
+  }
+  const d = state.im.data;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const c = f(x, y, x * cell, y * cell), i = (y * w + x) * 4;
+    if (c) { d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = c[3] ?? 255; } else d[i + 3] = 0;
+  }
+  state.cx.putImageData(state.im, 0, 0);
+  g.imageSmoothingEnabled = false;
+  g.drawImage(state.cv, 0, 0, w * cell, h * cell);
+  g.imageSmoothingEnabled = true;
+}
+const PAPER = [242, 242, 242];
+
+// ---------- the ten variants: draw(g, W, H, mid, t, state)
+const DRAW = {
+  // A: dot screen — the cloud is a field of round dots, full dots inside, shrinking at the rims
+  A(g, W, H, mid, t) {
+    drawScene(g, W, H, mid, t);
+    const B = bank(W, mid, t, { r: 60, speed: 6 }), c = 7;
+    g.fillStyle = "#f2f2f2";
+    for (let y = mid - 150; y < mid + 150; y += c) for (let x = ((y / c) & 1) * c / 2; x < W + c; x += c) {
+      const n = (fbm(x * 0.02 + t * 0.2, y * 0.03, 3) - 0.5) * 0.5;
+      const v = clamp((B.s(x, y) + n + 0.12) / 0.35);
+      const r = c * 0.74 * Math.sqrt(v);
+      if (r > 0.5) { g.beginPath(); g.arc(x, y, r, 0, 6.283); g.fill(); }
+    }
+  },
+  // B: 1-bit cumulus: inside paper, lit from above, the underside dithered into the dark
+  B(g, W, H, mid, t, st) {
+    drawScene(g, W, H, mid, t);
+    const back = bank(W, mid - 26, t * 0.5, { r: 70, speed: 5 }), front = bank(W, mid + 18, t, { r: 46 });
+    pixels(g, W, H, 3, (x, y, px, py) => {
+      if (py < mid - 160 || py > mid + 160) return null;
+      const th = bay(x, y), f = front.s(px, py);
+      if (f > 0) {
+        const lit = clamp(0.25 + f * 2.5 - (front.s(px, py + 10) < 0 ? 0.5 : 0));
+        return lit > th ? PAPER : [10, 10, 10];
+      }
+      const b = back.s(px, py);
+      if (b > 0) return clamp(0.2 + b * 2) > th ? [205, 205, 205] : [90, 90, 90];
+      return null;
+    }, st);
+  },
+  // C: union outline: stroke every shape thick black, then fill them all white
+  C(g, W, H, mid, t) {
+    drawScene(g, W, H, mid, t);
+    const B = bank(W, mid, t, { r: 52, speed: 9 }), P = B.path();
+    g.lineWidth = 9; g.strokeStyle = "#111"; g.lineJoin = "round"; g.stroke(P);
+    g.fillStyle = "#f2f2f2"; g.fill(P);
+    g.lineWidth = 3; g.lineCap = "round";
+    for (const [x, y, r, row] of B.C) {
+      if (row === 0) { g.beginPath(); g.arc(x - r * 0.1, y + r * 0.15, r * 0.55, 3.75, 5.4); g.stroke(); continue; }
+      for (let k = -0.55; k <= 0.56; k += 0.22) {
+        const xx = x + k * r, yy = y + Math.sqrt(r * r - (k * r) ** 2);
+        g.beginPath(); g.moveTo(xx + 3, yy - 16); g.lineTo(xx - 3, yy - 6); g.stroke();
+      }
+    }
+  },
+  // D: engraving — horizontal white lines, thicker deeper inside the cloud
+  D(g, W, H, mid, t) {
+    drawScene(g, W, H, mid, t);
+    const B = bank(W, mid, t, { r: 56, speed: 7 });
+    g.fillStyle = "#f2f2f2";
+    for (let y = mid - 140; y < mid + 140; y += 5) for (let x = 0; x < W; x += 2) {
+      const v = B.s(x, y) + (vnoise(x * 0.04, y * 0.3) - 0.5) * 0.1;
+      if (v <= 0) continue;
+      const th = clamp(v * 9) * 4.6;
+      g.fillRect(x, y + (5 - th) / 2, 2, th);
+    }
+  },
+  // E: smoke billows posterised to 5 flat greys, edges eaten by noise
+  E(g, W, H, mid, t, st) {
+    drawScene(g, W, H, mid, t);
+    const B = bank(W, mid, t, { r: 58, speed: 6 });
+    const tones = [null, [55, 55, 55], [115, 115, 115], [178, 178, 178], PAPER];
+    pixels(g, W, H, 4, (x, y, px, py) => {
+      if (py < mid - 170 || py > mid + 170) return null;
+      const n = fbm(px * 0.012 + t * 0.15, py * 0.02 - t * 0.05, 3) - 0.5;
+      const v = clamp((B.s(px, py) + n * 0.35 + 0.15) / 0.35);
+      return tones[Math.min(4, Math.floor(v * 4.6))];
+    }, st);
+  },
+  // F: ASCII: the cloud typed out, dense characters at the rim, paper inside
+  F(g, W, H, mid, t) {
+    drawScene(g, W, H, mid, t);
+    const B = bank(W, mid, t, { r: 58, speed: 7 }), RAMP = ".:-=+*#%@", cw = 8, ch = 12;
+    g.font = "700 12px 'IBM Plex Mono', monospace"; g.textBaseline = "middle"; g.textAlign = "center";
+    for (let y = mid - 150; y < mid + 150; y += ch) for (let x = 0; x < W; x += cw) {
+      const v = B.s(x + cw / 2, y + ch / 2);
+      if (v <= -0.02) continue;
+      g.fillStyle = "#f2f2f2"; g.fillRect(x, y, cw, ch);
+      if (v > 0.22) continue;
+      g.fillStyle = "#111";
+      g.fillText(RAMP[Math.min(RAMP.length - 1, Math.floor(clamp(1 - v / 0.22) * RAMP.length))], x + cw / 2, y + ch / 2);
+    }
+  },
+  // G: pixel cloud bank sliced into bands that slip sideways now and then, red / cyan split
+  G(g, W, H, mid, t, st) {
+    drawScene(g, W, H, mid, t);
+    const B = bank(W, mid, t, { r: 50, speed: 8 }), tick = Math.floor(t * 7);
+    pixels(g, W, H, 3, (x, y, px, py) => {
+      if (py < mid - 140 || py > mid + 140) return null;
+      const b = Math.floor(py / 15), sh = hash(b, tick) > 0.8 ? (hash(b, tick + 9) - 0.5) * 70 : 0;
+      if (B.s(px + sh, py) > 0) return PAPER;
+      if (B.s(px + sh + 8, py) > 0) return [255, 10, 10];
+      if (B.s(px + sh - 8, py) > 0) return [0, 225, 235];
+      return null;
+    }, st);
+  },
+  // H: three layers of cut paper with soft shadows, nearer layers lower, bigger and faster
+  H(g, W, H, mid, t) {
+    drawScene(g, W, H, mid, t);
+    [[mid - 30, 40, 4, "#d6d6d6"], [mid, 50, 7, "#e4e4e4"], [mid + 34, 60, 11, "#f2f2f2"]].forEach(([y, r, sp, col], L) => {
+      const B = bank(W, y, t + L * 31, { r, speed: sp });
+      g.save(); g.shadowColor = "rgba(0,0,0,.6)"; g.shadowBlur = 22; g.shadowOffsetY = 12;
+      g.fillStyle = col; g.fill(B.path()); g.restore();
+    });
+  },
+  // I: ornamental swirl clouds: outlined lobes, spirals curling inside, one red in four
+  I(g, W, H, mid, t) {
+    drawScene(g, W, H, mid, t);
+    const B = bank(W, mid, t, { r: 46, speed: 6 }), P = B.path();
+    g.lineWidth = 7; g.strokeStyle = "#111"; g.lineJoin = "round"; g.stroke(P);
+    g.fillStyle = "#f2f2f2"; g.fill(P);
+    B.C.forEach(([a, b, r, row], i) => {
+      if (i % 2) return;
+      g.strokeStyle = i % 4 ? "#111" : "#ff0a0a"; g.lineWidth = 3.2; g.lineCap = "round";
+      const dir = row ? -1 : 1;
+      g.beginPath();
+      for (let u = 0; u <= 1; u += 0.02) {
+        const ang = dir * u * 10 + (row ? 1.6 : -1.6), rad = r * 0.72 * (1 - u * 0.9);
+        const px = a + Math.cos(ang) * rad, py = b + Math.sin(ang) * rad;
+        u ? g.lineTo(px, py) : g.moveTo(px, py);
+      }
+      g.stroke();
+    });
+  },
+  // J: a heap of Xanax bars as the cloud; single bars break off and fall into the black
+  J(g, W, H, mid, t) {
+    drawScene(g, W, H, mid, t, 0.18);
+    const B = bank(W, mid, t, { r: 40, speed: 5 });
+    g.fillStyle = "#f2f2f2"; g.fill(B.path());
+    const pw = 78, ph = pw * pillImg.height / pillImg.width;
+    for (let i = 0; i < Math.ceil(W / 7); i++) {
+      const x = (hash(i, 1) * (W + 160) + t * 5 * (0.5 + hash(i, 2))) % (W + 160) - 80;
+      const y = mid + (hash(i, 3) - 0.5) * 2 * (B.h + 18);
+      if (B.s(x, y) < -0.25) continue;
+      g.save(); g.translate(x, y); g.rotate((hash(i, 4) - 0.5) * 2.6);
+      g.drawImage(pillImg, -pw / 2, -ph / 2, pw, ph); g.restore();
+    }
+    for (let i = 0; i < 14; i++) {
+      const life = (t * 0.12 + hash(i, 9)) % 1;
+      const x = hash(i, 8) * W + Math.sin(life * 6 + i) * 20, y = mid + B.h + 30 + life * (H - mid);
+      g.save(); g.translate(x, y); g.rotate(life * 4 * (hash(i, 7) - 0.5) - 0.3);
+      g.globalAlpha = 1 - life; g.drawImage(pillImg, -pw / 2, -ph / 2, pw, ph); g.restore();
+    }
+    g.globalAlpha = 1;
+  },
+};
+
+// ---------- build the panels, animate the ones on screen
+const lab = document.getElementById("lab");
+const panels = VARIANTS.map(([k, name, note]) => {
+  const s = document.createElement("section");
+  s.id = k;
+  s.innerHTML = `<canvas></canvas><div class="label"><b>${k}</b><span>${name}<em>${note}</em></span></div>`;
+  lab.appendChild(s);
+  return { k, cv: s.querySelector("canvas"), on: false, st: {}, last: -1 };
+});
+const io = new IntersectionObserver((es) => es.forEach((e) => { panels.find((p) => p.cv === e.target).on = e.isIntersecting; }));
+panels.forEach((p) => io.observe(p.cv));
+Promise.all([img("assets/lab/seam_top.webp").then((i) => (topImg = i)), img("assets/xanax_bar.webp").then((i) => (pillImg = i)), document.fonts.ready]).then(() => {
+  const t0 = performance.now();
+  (function loop() {
+    const t = (performance.now() - t0) / 1000;
+    for (const p of panels) {
+      if (!p.on || t - p.last < 1 / 20) continue;
+      p.last = t;
+      const W = p.cv.clientWidth, H = p.cv.clientHeight;
+      if (p.cv.width !== W || p.cv.height !== H) { p.cv.width = W; p.cv.height = H; }
+      const g = p.cv.getContext("2d");
+      DRAW[p.k](g, W, H, Math.round(H * 0.45), t, p.st);
+    }
+    requestAnimationFrame(loop);
+  })();
+});
+</script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=24";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=25";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "24";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "25";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -617,7 +617,7 @@ function sizePills() {
 const tv = { el: null, row: null, cv: null, ctx: null, lyr: null, lines: [], streamH: 0, widget: null,
   progress: 0, pos: 0, dur: 0, img: null, meta: null, rect: { x: 0, y: 0, w: 0, h: 0 }, resume: false,
   title: "", times: null, syncing: false, tapTimes: [], appear0: 0, busy: false, peaks: null,
-  scrubbing: false, Ys: null, prevYs: null, wob: 0, lastT: 0 };
+  scrubbing: false, Ys: null, prevYs: null, wob: 0, lastT: 0, leaving: false, leave0: 0 };
 const SYNC = new URLSearchParams(location.search).has("sync");
 const timesKey = (t) => `xt-times:${t}`;
 const savedTimes = (t) => { try { return JSON.parse(localStorage.getItem(timesKey(t))); } catch { return null; } };
@@ -663,10 +663,15 @@ function holdCentre(el, opening) {
 }
 
 async function closeTrack() {
-  if (!tv.el) return;
+  if (!tv.el || tv.leaving) return;
+  tv.leaving = true;
   const { el, row } = tv;
   try { tv.widget && tv.widget.pause(); } catch {}
-  tv.el = null;
+  // the car drives off into the distance first (the entrance played backwards),
+  // the lyrics fade with it — only then does the stage fold away
+  tv.leave0 = performance.now();
+  await new Promise((r) => setTimeout(r, 1300));
+  tv.el = null; tv.leaving = false; tv.leave0 = 0;
   ext = null;
   setPlayerTitle(null);
   plTime.textContent = `${mmss(audio.currentTime)} / ${mmss(audio.duration)}`;
@@ -697,7 +702,7 @@ async function openTrack(row) {
   row.classList.add("on");
   Object.assign(tv, { el, row, cv: el.querySelector("canvas"), lyr: el.querySelector(".tv-lyrics"), lines: [], progress: 0, pos: 0, dur: 0, widget: null, img: null,
     title, times: cfg.times || savedTimes(title), syncing: SYNC, tapTimes: [], appear0: 0, peaks: null,
-    scrubbing: false, Ys: null, prevYs: null, wob: 0, lastT: 0 });
+    scrubbing: false, Ys: null, prevYs: null, wob: 0, lastT: 0, leaving: false, leave0: 0 });
   tv.ctx = tv.cv.getContext("2d");
   el.querySelector(".tv-back").addEventListener("click", closeTrack);
 
@@ -867,7 +872,8 @@ function tvTick(t) {
   const n = meta.frames.length, frame = Math.floor(t * 5) % n;             // one slow turn every ~9.6 s, frames in order
   tv.fa = frame; tv.fb = (frame + 1) % n; tv.ff = t * 5 - Math.floor(t * 5);
   // entrance: the car comes from far away (small, high, transparent) to its place
-  const k = tv.appear0 ? ease(clamp((performance.now() - tv.appear0) / 1800)) : 0;
+  let k = tv.appear0 ? ease(clamp((performance.now() - tv.appear0) / 1800)) : 0;
+  if (tv.leave0) k = Math.min(k, 1 - ease(clamp((performance.now() - tv.leave0) / 1200)));
   const cw0 = Math.min(W * (isMobile() ? 0.7 : 0.34), H * 0.5 * meta.cellW / meta.cellH);
   const cw = cw0 * (0.12 + 0.88 * k), ch = cw * meta.cellH / meta.cellW;
   const cy = H * (0.4 + 0.1 * k);

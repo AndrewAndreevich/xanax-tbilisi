@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=47";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=48";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "47";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "48";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -100,16 +100,43 @@ $("#exitTracks").innerHTML = TRACKS.map(([t, d], i) =>
   `<div class="tr${PLAYABLE[t] ? " playable" : ""}" data-t="${t}"><span>${String(i + 1).padStart(2, "0")} ${t}</span><b>${d}</b></div>`).join("");
 
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-// one sentence per line, alternating sides of the figure
+// one sentence per line, alternating sides of the figure; a long sentence is broken into
+// short lines (after a comma, else between words, never inside [...]) that stay on its side,
+// so it neither runs off the screen nor into the figure
+const CASE_MAX = isMobile() ? 21 : 28;                 // characters per line
+function breakLine(t) {
+  if (t.length <= CASE_MAX) return [t];
+  // the fewest lines that fit, with the words spread so the longest line is as short as it
+  // can be (no lonely last word); a break after a comma counts a little shorter
+  const w = t.match(/\[[^\]]*\]\S*|\S+/g), n = w.length;
+  const len = (i, j) => w.slice(i, j).join(" ").length - (w[j - 1].endsWith(",") && j < n ? 4 : 0);
+  for (let k = Math.ceil(t.length / CASE_MAX); k <= n; k++) {
+    const memo = new Map();
+    const best = (i, k) => {                                // [longest line, breaks] for w[i..] in k lines
+      if (k === 1) return [len(i, n), []];
+      const key = i * 64 + k;
+      if (memo.has(key)) return memo.get(key);
+      let r = [Infinity, null];
+      for (let j = i + 1; j <= n - k + 1; j++) {
+        const [m, br] = best(j, k - 1), v = Math.max(len(i, j), m);
+        if (v < r[0]) r = [v, [j, ...br]];
+      }
+      memo.set(key, r);
+      return r;
+    };
+    const [m, br] = best(0, k);
+    if (m <= CASE_MAX) return [0, ...br].map((i, q) => w.slice(i, [...br, n][q]).join(" "));
+  }
+  return [t];
+}
 const SENT = CASE.flatMap((line) => {
   const red = line.startsWith("*");
-  return (red ? line.slice(1) : line).split(/(?<=\.) (?=\S)/).map((t) => (red ? "*" : "") + t);
+  return (red ? line.slice(1) : line).split(/(?<=\.) (?=\S)/).map((t) => ({ t, red }));
 });
-$("#case").innerHTML = SENT.map((line, i) => {
-  const red = line.startsWith("*");
-  const txt = esc(red ? line.slice(1) : line).replace(/\[(.+?)\]/g, '<span class="g">$1</span>');
+$("#case").innerHTML = SENT.flatMap(({ t, red }, i) => breakLine(t).map((part) => {
+  const txt = esc(part).replace(/\[(.+?)\]/g, '<span class="g">$1</span>');
   return `<p class="${i % 2 ? "R" : "L"}${red ? " hit" : ""}">${txt}</p>`;
-}).join("");
+})).join("");
 
 // scramble each line in as it enters the viewport
 const GLYPH = "0123456789#/\\+-X";

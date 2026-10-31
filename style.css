@@ -229,7 +229,7 @@ em { font-style: normal; color: var(--dim); }
   .clock { font-size: 9px; }
   .scroll-hint { bottom: 64px; }
   .case { clip-path: inset(36px 0 34px 0); }      /* and below the X/Y strip on phones */
-  .case p { font-size: 7.5px; white-space: normal; width: max-content; max-width: 44vw; }
+  .case p { font-size: 7.5px; }                    /* main.js breaks the sentences shorter on phones */
   .cross { width: 150vw; top: 44%; }
   .head { height: auto; width: 125vw; }
   .bignum { left: 12%; top: 40%; font-size: 72px; }

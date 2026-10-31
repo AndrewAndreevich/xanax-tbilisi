@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=18";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=19";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "18";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "19";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -471,11 +471,35 @@ plMute.addEventListener("click", () => {
   if (ext) ext.volume(vol);
   plMute.textContent = `VOL ${String(Math.round(vol * 100)).padStart(3, "0")}`;
 });
-$("#plBar").addEventListener("click", (e) => {
+// waveform progress: peaks of whatever plays (site track: precomputed; SoundCloud: its waveform)
+let sitePeaks = null;
+fetch(asset("assets/audio/silence_in_motion.peaks.json")).then((r) => r.json()).then((p) => (sitePeaks = p)).catch(() => {});
+const waveCvs = [$("#plBar"), $("#waveStrip")];
+function drawWaves() {
+  const peaks = ext ? tv.peaks : sitePeaks;
+  const prog = ext ? tv.progress || 0 : (audio.duration ? audio.currentTime / audio.duration : 0);
+  const dpr = Math.min(devicePixelRatio, 2);
+  for (const cv of waveCvs) {
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (!w || !h) continue;
+    if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const g = cv.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    const step = 3, n = Math.floor(w / step);
+    for (let i = 0; i < n; i++) {
+      const pk = peaks ? peaks[Math.floor(i / n * peaks.length)] : 0.15;
+      const bh = Math.max(1, pk * h);
+      g.fillStyle = i / n < prog ? "#ff0a0a" : "#ffffff";
+      g.fillRect(i * step, h - bh, step - 1, bh);
+    }
+  }
+}
+waveCvs.forEach((cv) => cv.addEventListener("click", (e) => {
   const r = e.currentTarget.getBoundingClientRect();
   if (ext) { ext.seek(clamp((e.clientX - r.left) / r.width)); return; }
   if (isFinite(audio.duration)) audio.currentTime = clamp((e.clientX - r.left) / r.width) * audio.duration;
-});
+}));
 ["play", "pause"].forEach((ev) => audio.addEventListener(ev, syncUI));
 audio.addEventListener("timeupdate", () => {
   if (ext) return;
@@ -504,6 +528,7 @@ function vizFrame() {
   } else {
     for (const b of vizBars) b.style.transform = "scaleY(.04)";
   }
+  drawWaves();
   requestAnimationFrame(vizFrame);
 }
 vizFrame();
@@ -576,7 +601,7 @@ function sizePills() {
 // silhouette in step with playback. BACK folds it away.
 const tv = { el: null, row: null, cv: null, ctx: null, lyr: null, lines: [], streamH: 0, widget: null,
   progress: 0, pos: 0, dur: 0, img: null, meta: null, rect: { x: 0, y: 0, w: 0, h: 0 }, resume: false,
-  title: "", times: null, syncing: false, tapTimes: [], appear0: 0, busy: false };
+  title: "", times: null, syncing: false, tapTimes: [], appear0: 0, busy: false, peaks: null };
 const SYNC = new URLSearchParams(location.search).has("sync");
 const timesKey = (t) => `xt-times:${t}`;
 const savedTimes = (t) => { try { return JSON.parse(localStorage.getItem(timesKey(t))); } catch { return null; } };
@@ -607,13 +632,15 @@ function animateScroll(to, ms) {
 }
 // keep the stage's middle at the middle of the screen while it grows or shrinks,
 // so it opens from (and folds back into) the line under the track
-function holdCentre(el, ms) {
+// (until the stage has really reached its size: a slow device may stretch the transition)
+function holdCentre(el, opening) {
   return new Promise((done) => {
     const t0 = performance.now();
     const step = () => {
       const top = scrollY + el.getBoundingClientRect().top;
       scrollTo({ top: top + el.offsetHeight / 2 - innerHeight / 2, behavior: "instant" });
-      performance.now() - t0 < ms ? requestAnimationFrame(step) : done();
+      const h = el.offsetHeight, settled = opening ? h >= innerHeight - 1 : h <= 0;
+      (settled && performance.now() - t0 > 300) || performance.now() - t0 > 4000 ? done() : requestAnimationFrame(step);
     };
     step();
   });
@@ -632,7 +659,7 @@ async function closeTrack() {
   $("#s3").classList.add("tv-room");
   el.classList.remove("open");
   row.classList.remove("on");
-  await holdCentre(el, 800);
+  await holdCentre(el, false);
   el.remove();
   $("#s3").classList.remove("tv-room");
   if (tv.resume) { userPaused = false; play(true).then(syncUI); }
@@ -653,7 +680,7 @@ async function openTrack(row) {
   row.after(el);
   row.classList.add("on");
   Object.assign(tv, { el, row, cv: el.querySelector("canvas"), lyr: el.querySelector(".tv-lyrics"), lines: [], progress: 0, pos: 0, dur: 0, widget: null, img: null,
-    title, times: cfg.times || savedTimes(title), syncing: SYNC, tapTimes: [], appear0: 0 });
+    title, times: cfg.times || savedTimes(title), syncing: SYNC, tapTimes: [], appear0: 0, peaks: null });
   tv.ctx = tv.cv.getContext("2d");
   el.querySelector(".tv-back").addEventListener("click", closeTrack);
 
@@ -684,7 +711,7 @@ async function openTrack(row) {
   await animateScroll(line - innerHeight / 2, 520);
   void el.offsetHeight;                                     // commit height 0 first, so the opening animates
   el.classList.add("open");
-  await holdCentre(el, 800);
+  await holdCentre(el, true);
   $("#s3").classList.remove("tv-room");
   tv.appear0 = performance.now();
   tv.busy = false;
@@ -704,7 +731,16 @@ async function openTrack(row) {
     .catch(() => tv.el === el && buildLyrics(fallback));
   if (window.SC) {
     const w = tv.widget = SC.Widget(el.querySelector("iframe"));
-    w.bind(SC.Widget.Events.READY, () => { w.setVolume(vol * 100); w.play(); w.getDuration((d) => (tv.dur = d / 1000)); });
+    w.bind(SC.Widget.Events.READY, () => {
+      w.setVolume(vol * 100); w.play(); w.getDuration((d) => (tv.dur = d / 1000));
+      w.getCurrentSound((snd) => {
+        const u = snd && snd.waveform_url && snd.waveform_url.replace(/\.png$/, ".json");
+        if (u) fetch(u).then((r) => r.json()).then((j) => {
+          const m = Math.max(1, ...j.samples);
+          if (tv.el === el) tv.peaks = j.samples.map((v) => v / m);
+        }).catch(() => {});
+      });
+    });
     w.bind(SC.Widget.Events.PLAY, () => { if (ext) { ext.paused = false; syncUI(); } });
     w.bind(SC.Widget.Events.PAUSE, () => { if (ext) { ext.paused = true; syncUI(); } });
     w.bind(SC.Widget.Events.FINISH, () => { if (ext) { ext.paused = true; syncUI(); } });
@@ -720,15 +756,19 @@ async function openTrack(row) {
 }
 
 function buildLyrics(lines) {
-  tv.lyr.innerHTML = lines.map((l, i) => `<p class="${i % 2 ? "R" : "L"}">${esc(l)}</p>`).join("");
+  tv.lyr.innerHTML = lines.map((l, i) =>
+    `<p class="${i % 2 ? "R" : "L"}">${[...l].map((c) => `<span>${esc(c)}</span>`).join("")}</p>`).join("");
   const lh = isMobile() ? 12 : 14, y = { L: 0, R: lh * 0.5 };
   tv.lines = [...tv.lyr.querySelectorAll("p")].map((p) => {
     const side = p.classList.contains("L") ? "L" : "R";
-    const ln = { p, side, w: p.offsetWidth, h: p.offsetHeight, y0: y[side], x: null };
+    // letter offsets measured once in normal flow, then every letter is placed by hand
+    const chars = [...p.children].map((el) => ({ el, x: el.offsetLeft, w: el.offsetWidth }));
+    const ln = { p, side, chars, w: p.offsetWidth, h: p.offsetHeight, y0: y[side], x: null };
     y[side] += ln.h + (isMobile() ? 6 : 8);
     return ln;
   });
   tv.streamH = Math.max(y.L, y.R);
+  tv.lines.forEach((ln) => { ln.p.classList.add("bent"); ln.p.style.transform = "none"; });
 }
 
 // ?sync: tap (or space) when each line starts; the times apply at once, are kept on
@@ -797,15 +837,36 @@ function tvTick(t) {
   }
   const gap = isMobile() ? 6 : 12, cx = W / 2;
   const minX = isMobile() ? 6 : panelW + 10, maxX = isMobile() ? W - 6 : W - panelW - 10;
+  // a line that does not fit beside the car bends: from the car's edge on, its letters
+  // curl away on an arc (up above the car's middle, down below it) instead of running over it
+  const R = isMobile() ? 16 : 24, carMid = tv.rect.y + tv.rect.h / 2;
   for (const ln of tv.lines) {
     const y = H / 2 + (Y - ln.y0);
     if (y < -30 || y > H + 10) { ln.p.style.visibility = "hidden"; ln.x = null; continue; }
     ln.p.style.visibility = "visible";
-    const e = carEdges(frame, y + ln.h / 2) || [cx - 6, cx + 6];
-    let tx = ln.side === "L" ? e[0] - gap - ln.w : e[1] + gap;
+    const e = carEdges(frame, y + ln.h / 2);
+    const L = ln.side === "L";
+    let tx = L ? (e ? e[0] - gap - ln.w : cx - 8 - ln.w) : (e ? e[1] + gap : cx + 8);
     tx = Math.max(minX, Math.min(maxX - ln.w, tx));
     ln.x = ln.x == null ? tx : ln.x + (tx - ln.x) * 0.3;
-    ln.p.style.transform = `translate3d(${ln.x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+    const B = e ? (L ? e[0] - gap : e[1] + gap) : null;          // where the car begins for this line
+    const dir = y + ln.h / 2 < carMid ? -1 : 1;
+    for (const c of ln.chars) {
+      const px = ln.x + c.x + c.w / 2;
+      let x = px, yy = y, rot = 0;
+      if (B != null) {
+        const S = L ? B - R : B + R;                              // the bend starts R before the edge
+        const over = L ? px - S : S - px;
+        if (over > 0) {
+          const arc = R * Math.PI / 2;
+          const th = Math.min(over, arc) / R;
+          x = L ? S + R * Math.sin(th) : S - R * Math.sin(th);
+          yy = y + dir * R * (1 - Math.cos(th)) + (over > arc ? dir * (over - arc) : 0);
+          rot = (L ? dir : -dir) * th;
+        }
+      }
+      c.el.style.transform = `translate3d(${(x - c.w / 2).toFixed(1)}px, ${yy.toFixed(1)}px, 0) rotate(${rot.toFixed(3)}rad)`;
+    }
   }
   tv.lines.forEach((ln, i) => ln.p.classList.toggle("cur", i === curIdx));
 }

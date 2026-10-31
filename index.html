@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Mono:wght@500;700&family=Noto+Sans+Georgian:wght@700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=18">
+<link rel="stylesheet" href="style.css?v=19">
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
 </script>
@@ -44,7 +44,7 @@
       <div class="pl-head"><span>// NOW PLAYING</span><span id="plState">LOADING</span></div>
       <div class="pl-title"><div class="pl-title-in"><span>SILENCE IN MOTION</span><span>HELLO_ANDREYANDREEVICH</span><span>SILENCE IN MOTION</span><span>HELLO_ANDREYANDREEVICH</span></div></div>
       <div class="pl-viz" id="plViz"></div>
-      <div class="pl-bar" id="plBar"><i id="plFill"></i></div>
+      <canvas class="pl-wave" id="plBar" aria-label="seek"></canvas>
       <div class="pl-row">
         <button class="pl-btn" id="plBtn" type="button">PLAY</button>
         <span id="plTime">00:00 / 00:00</span>
@@ -55,6 +55,7 @@
 
   <div class="scroll-hint">SCROLL</div>
 
+  <canvas class="wave-strip" id="waveStrip" aria-label="seek"></canvas>
   <nav class="bar">
     <div class="links"><a href="#s1">INDEX <em>+</em></a><a href="#s2">BAPTIST <em>+</em></a><a href="#s3">TRACKS <em>+</em></a></div>
     <button class="bar-play" id="barPlay" type="button"><b>PLAY</b> SILENCE IN MOTION</button>
@@ -75,7 +76,7 @@
     <div class="s2-lead" aria-hidden="true"></div>
     <div class="s2-sticky">
       <canvas id="terrainLight" class="terrain light"></canvas>
-      <img class="lion" id="lion" src="assets/lion.png?v=18" alt="" aria-hidden="true">
+      <img class="lion" id="lion" src="assets/lion.png?v=19" alt="" aria-hidden="true">
       <div class="cross" id="cross">
         <i class="bar-v"></i><i class="bar-h"></i>
         <i class="mini-x q1"></i><i class="mini-x q2"></i><i class="mini-x q3"></i><i class="mini-x q4"></i>
@@ -103,7 +104,7 @@
   </section>
 </main>
 
-<audio id="track" src="assets/audio/silence_in_motion.mp3?v=18" preload="auto" playsinline loop></audio>
-<script type="module" src="main.js?v=18"></script>
+<audio id="track" src="assets/audio/silence_in_motion.mp3?v=19" preload="auto" playsinline loop></audio>
+<script type="module" src="main.js?v=19"></script>
 </body>
 </html>

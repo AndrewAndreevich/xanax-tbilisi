@@ -16,17 +16,20 @@ export const FIRE_GLSL = /* glsl */`
     c = mix(c, vec3(1.0, 0.45, 0.05), smoothstep(0.4, 0.7, h));
     return mix(c, vec3(1.0, 0.95, 0.8), smoothstep(0.75, 1.0, h));
   }
-  // white-grey fire: smoke grey -> ash -> bright white, same steps as the red one
+  // white-grey fire: smoke grey -> ash -> the site's white (#f2f2f2), so the hottest
+  // flame is exactly the colour of the white slide it grows out of
+  const vec3 PAPER = vec3(0.949);
   vec3 greyPal(float h) {
     vec3 c = mix(vec3(0.16), vec3(0.42), smoothstep(0.0, 0.4, h));
     c = mix(c, vec3(0.72), smoothstep(0.4, 0.7, h));
-    return mix(c, vec3(1.0), smoothstep(0.75, 1.0, h));
+    return mix(c, PAPER, smoothstep(0.75, 1.0, h));
   }
   // stepped heat: 5 levels, ordered-dithered on the pixel grid
   float stepHeat(float h, float t) { return floor(clamp(h, 0.0, 1.0) * 5.0 + t) / 5.0; }
 `;
 
-// Edge fire: flames grow out of a ragged line near the bottom, on black, white-grey.
+// Edge fire: the white slide fills the bottom; white-grey flames grow out of its
+// ragged top with no seam — the base of the fire is the same white as the slide.
 // Variants share the line and the palette, they differ in how the flames are shaped.
 export const VARIANTS = [
   { id: "paper", name: "SOFT TONGUES", note: "мягкие клубящиеся языки" },
@@ -34,7 +37,7 @@ export const VARIANTS = [
   { id: "bigpixel", name: "BIG PIXEL", note: "как IMPOSTOR, но крупный пиксель 8px" },
   { id: "glitch", name: "GLITCH FIRE", note: "пламя рвётся полосами и расслаивается по RGB" },
   { id: "embers", name: "EMBERS", note: "низкое пламя и искры вверх" },
-  { id: "figure", name: "AS ON ARSENY", note: "ровно та же формула, что жжёт фигуру: полоса огня и тлеющие точки под ней" },
+  { id: "figure", name: "AS ON ARSENY", note: "ровно та же формула, что жжёт фигуру: рваная полоса огня" },
 ];
 
 const FRAG = /* glsl */`#version 300 es
@@ -61,6 +64,8 @@ const FRAG = /* glsl */`#version 300 es
     // the source line: ragged, slowly crawling (not drawn itself)
     float line = uEdge + (fbm(vec2(p.x / 140.0, T * 0.25)) - 0.5) * 46.0 + (noise(vec2(p.x / 18.0, T * 1.5)) - 0.5) * 8.0;
     float below = line - p.y;                                   // > 0: under the line
+    if (below > 0.0) { outColor = vec4(PAPER, 1.0); return; }   // the white slide itself
+    float base = 1.0 - smoothstep(0.0, 16.0, -below);           // flame base is white-hot: no seam
 
     if (v == 5.0) {
       // the figure's burn, unrolled along the edge: same noise scales (figure ~333 x 666 css px),
@@ -68,22 +73,16 @@ const FRAG = /* glsl */`#version 300 es
       float n = noise(vec2(p.x / 23.8, p.y / 30.3 - T * 4.0));
       float n2 = noise(vec2(p.x / 11.1 + 7.0, p.y / 74.0 - T * 6.5));
       float d = (below + (n - 0.5) * 93.0) / 666.0;
-      if (d >= 0.05) {
-        float e = hash(floor(gl_FragCoord.xy / pix) + floor(T * 9.0));
-        float fade = 1.0 - smoothstep(0.05, 0.5, d);
-        if (e > 1.0 - 0.07 * fade) { outColor = vec4(greyPal(0.2 + 0.5 * e), 1.0); return; }
-        outColor = vec4(0.0); return;
-      }
+      if (d >= 0.05) { outColor = vec4(PAPER, 1.0); return; }  // burnt through = white
       if (d > -0.09) {
         float h = clamp(1.0 - abs(d + 0.01) / 0.08, 0.0, 1.0) * (0.55 + 0.6 * n2) * uStrength;
-        h = stepHeat(h, t);
+        h = stepHeat(max(h, base), t);
         outColor = h > 0.0 ? vec4(greyPal(h), 1.0) : vec4(0.0);
         return;
       }
+      if (base > 0.0) { outColor = vec4(greyPal(stepHeat(base, t)), 1.0); return; }
       outColor = vec4(0.0); return;
     }
-
-    if (below > 0.0) { outColor = vec4(0.0); return; }
 
     float up = -below / uFlame;                                 // 0 at the line, 1 at full flame height
     float h = 0.0;
@@ -105,7 +104,7 @@ const FRAG = /* glsl */`#version 300 es
       float d = up / tongue + (n - 0.5) * 0.35;
       h = clamp(1.0 - d, 0.0, 1.0) * (0.55 + 0.6 * n2) * uStrength;
     }
-    h = stepHeat(h, t);
+    h = stepHeat(max(h, base), t);
     if (h <= 0.0) { outColor = vec4(0.0); return; }
     vec3 col = greyPal(h);
     if (v == 3.0) {                                             // glitch: channel split on the torn bands

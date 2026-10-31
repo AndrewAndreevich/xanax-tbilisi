@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=14";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=15";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "14";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "15";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -523,8 +523,8 @@ function drawPills(dt) {
   const w = pillCv.width, h = pillCv.height;
   tilt.x += (tilt.tx - tilt.x) * Math.min(1, dt * 4);
   tilt.y += (tilt.ty - tilt.y) * Math.min(1, dt * 4);
-  pillDX += (10 + tilt.x * 90) * dt * dpr;              // a slow default drift, steered by tilt
-  pillDY += (-12 + tilt.y * 90) * dt * dpr;
+  pillDX += (2 + tilt.x * 14) * dt * dpr;               // a very slow drift, gently steered by tilt
+  pillDY += (-3 + tilt.y * 14) * dt * dpr;
   pillCtx.clearRect(0, 0, w, h);
   const pw = 96 * dpr, ph = pw * pillImg.height / pillImg.width;
   const sx = 150 * dpr, sy = 74 * dpr;                  // grid step

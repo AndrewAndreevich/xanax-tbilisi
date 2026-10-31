@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=28";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=29";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "28";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "29";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -76,7 +76,7 @@ const PLAYABLE = {
   // times: when each lyric line starts (s); record them with ?sync on the site
   "STALIN MOUSTACHE": { sc: "https://soundcloud.com/xanaxtbilisi/stalin-moustache", impostor: "prius", times: null },
   // only the acoustic version is on the band's SoundCloud
-  "WHERE I'VE BEEN LAST 8 YEARS": { sc: "https://soundcloud.com/xanaxtbilisi/where-ive-been-last-8-years-acoustic", impostor: "bottle", times: null },
+  "WHERE I'VE BEEN LAST 8 YEARS": { sc: "https://soundcloud.com/xanaxtbilisi/where-ive-been-last-8-years-acoustic", impostor: "bottle", size: 0.5, times: null },
 };
 $("#exitTracks").innerHTML = TRACKS.map(([t, d], i) =>
   `<div class="tr${PLAYABLE[t] ? " playable" : ""}" data-t="${t}"><span>${String(i + 1).padStart(2, "0")} ${t}</span><b>${d}</b></div>`).join("");
@@ -704,7 +704,7 @@ async function openTrack(row) {
   row.classList.add("on");
   Object.assign(tv, { el, row, cv: el.querySelector("canvas"), lyr: el.querySelector(".tv-lyrics"), lines: [], progress: 0, pos: 0, dur: 0, widget: null, img: null,
     title, times: cfg.times || savedTimes(title), syncing: SYNC, tapTimes: [], appear0: 0, peaks: null,
-    scrubbing: false, Ys: null, prevYs: null, wob: 0, lastT: 0, leaving: false, leave0: 0 });
+    scrubbing: false, Ys: null, prevYs: null, wob: 0, lastT: 0, leaving: false, leave0: 0, size: cfg.size || 1 });
   tv.ctx = tv.cv.getContext("2d");
   el.querySelector(".tv-back").addEventListener("click", closeTrack);
 
@@ -877,7 +877,7 @@ function tvTick(t) {
   // entrance: the car comes from far away (small, high, transparent) to its place
   let k = tv.appear0 ? ease(clamp((performance.now() - tv.appear0) / 1800)) : 0;
   if (tv.leave0) k = Math.min(k, 1 - ease(clamp((performance.now() - tv.leave0) / 1200)));
-  const cw0 = Math.min(W * (isMobile() ? 0.7 : 0.34), H * 0.5 * meta.cellW / meta.cellH);
+  const cw0 = Math.min(W * (isMobile() ? 0.7 : 0.34), H * 0.5 * meta.cellW / meta.cellH) * (tv.size || 1);
   const cw = cw0 * (0.12 + 0.88 * k), ch = cw * meta.cellH / meta.cellW;
   const cy = H * (0.4 + 0.1 * k);
   tv.rect = { x: (W - cw) / 2, y: cy - ch / 2, w: cw, h: ch };

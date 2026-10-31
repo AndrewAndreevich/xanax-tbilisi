@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=30";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=31";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "30";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "31";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -551,7 +551,6 @@ function vizFrame() {
 vizFrame();
 
 $("#enter").addEventListener("click", () => {
-  askGyro();
   userPaused = false;
   play(true).then(syncUI);
   $("#loader").classList.add("done");
@@ -559,27 +558,16 @@ $("#enter").addEventListener("click", () => {
 
 // ---------------------------------------------------------------- slide 3: Xanax bars pattern
 // A staggered field of 2 mg bars (photo, assets/xanax_bar.webp), all at one angle,
-// drifting. On a phone the tilt steers the drift; on a desktop the mouse does.
+// drifting. On a desktop the mouse steers the drift (no motion sensors: no iOS permission prompt).
 const pillCv = $("#pills"), pillCtx = pillCv.getContext("2d");
 let pillImg = null;
 const tilt = { x: 0, y: 0, tx: 0, ty: 0 };              // -1..1, smoothed
-let pillDX = 0, pillDY = 0, gyroOn = false;
-addEventListener("deviceorientation", (e) => {
-  if (e.gamma == null) return;
-  gyroOn = true;
-  tilt.tx = clamp(e.gamma / 35, -1, 1);                 // left / right
-  tilt.ty = clamp(((e.beta ?? 45) - 45) / 35, -1, 1);   // forward / back from a natural reading angle
-});
+let pillDX = 0, pillDY = 0;
 addEventListener("pointermove", (e) => {
-  if (gyroOn) return;
+  if (e.pointerType === "touch") return;
   tilt.tx = e.clientX / innerWidth * 2 - 1;
   tilt.ty = e.clientY / innerHeight * 2 - 1;
 });
-// iOS only grants motion sensors from a user gesture: ask on ENTER
-function askGyro() {
-  const D = window.DeviceOrientationEvent;
-  if (D && typeof D.requestPermission === "function") D.requestPermission().catch(() => {});
-}
 const PILL_ANGLE = -0.32;                               // every bar at the same slant
 function drawPills(dt) {
   if (!pillImg) return;

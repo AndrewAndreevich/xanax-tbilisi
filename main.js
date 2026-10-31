@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=22";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=24";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "22";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "24";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -822,28 +822,36 @@ function tapLine() {
 }
 addEventListener("keydown", (e) => { if (SYNC && tv.el && e.code === "Space") { e.preventDefault(); tapLine(); } });
 
+// the silhouette row r, blended between the current and the next frame of the turn so it
+// changes smoothly instead of jumping 5 times a second (tv.fa, tv.fb, tv.ff set by tvTick)
+function profRow(r) {
+  const a = tv.meta.frames[tv.fa].profile[r], b = tv.meta.frames[tv.fb].profile[r];
+  if (a && b) return [a[0] + (b[0] - a[0]) * tv.ff, a[1] + (b[1] - a[1]) * tv.ff];
+  return (tv.ff < 0.5 ? a : b) || null;
+}
 function carEdges(frame, y) {
-  const { meta, rect } = tv, prof = meta.frames[frame].profile, n = prof.length;
+  const { meta, rect } = tv, n = meta.frames[0].profile.length;
   const r = Math.floor((y - rect.y) / rect.h * n);
   let l = 1, rr = 0;
-  for (let k = r - 2; k <= r + 2; k++) { const p = prof[k]; if (p) { l = Math.min(l, p[0]); rr = Math.max(rr, p[1]); } }
+  for (let k = r - 2; k <= r + 2; k++) { const p = k >= 0 && k < n ? profRow(k) : null; if (p) { l = Math.min(l, p[0]); rr = Math.max(rr, p[1]); } }
   return l > rr ? null : [rect.x + l * rect.w, rect.x + rr * rect.w];
 }
 
-// push a point out of the car (exact silhouette row, no widening): onto the roof line
-// when that is the shortest way out, otherwise sideways off the nearer flank
-function carPush(frame, x, y) {
-  const { meta, rect } = tv, prof = meta.frames[frame].profile, n = prof.length;
+// push a point out of the car: onto the roof line, or back off the flank the rope hangs
+// from (fromLeft) — never across to the far side, which made letters jump
+function carPush(x, y, fromLeft) {
+  const { meta, rect } = tv, n = meta.frames[0].profile.length;
   const r = Math.floor((y - rect.y) / rect.h * n);
-  if (r < 0 || r >= n || !prof[r]) return null;
-  const l = rect.x + prof[r][0] * rect.w, rr = rect.x + prof[r][1] * rect.w;
+  const row = r >= 0 && r < n ? profRow(r) : null;
+  if (!row) return null;
+  const l = rect.x + row[0] * rect.w, rr = rect.x + row[1] * rect.w;
   if (x <= l || x >= rr) return null;
   let top = r;
-  while (top > 0 && prof[top - 1] && rect.x + prof[top - 1][0] * rect.w < x && rect.x + prof[top - 1][1] * rect.w > x) top--;
+  for (let q = profRow(top - 1); top > 0 && q && rect.x + q[0] * rect.w < x && rect.x + q[1] * rect.w > x; q = profRow(top - 1)) top--;
   const yTop = rect.y + top / n * rect.h - 4;
-  const dl = x - l, dr = rr - x, du = y - yTop;
-  if (du <= dl && du <= dr) return [x, yTop];
-  return dl < dr ? [l - 1, y] : [rr + 1, y];
+  const side = fromLeft ? x - l : rr - x, du = y - yTop;
+  if (du <= side * 1.2) return [x, yTop];
+  return fromLeft ? [l - 1, y] : [rr + 1, y];
 }
 
 function tvTick(t) {
@@ -857,6 +865,7 @@ function tvTick(t) {
   if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
   const { meta, img: im, ctx } = tv;
   const n = meta.frames.length, frame = Math.floor(t * 5) % n;             // one slow turn every ~9.6 s, frames in order
+  tv.fa = frame; tv.fb = (frame + 1) % n; tv.ff = t * 5 - Math.floor(t * 5);
   // entrance: the car comes from far away (small, high, transparent) to its place
   const k = tv.appear0 ? ease(clamp((performance.now() - tv.appear0) / 1800)) : 0;
   const cw0 = Math.min(W * (isMobile() ? 0.7 : 0.34), H * 0.5 * meta.cellW / meta.cellH);
@@ -903,7 +912,7 @@ function tvTick(t) {
   // G: weight; KB: bending stiffness (each link wants to continue the previous one's
   // direction); KM: shape memory (each letter is drawn back towards its place in the
   // straight line) — together the tail sags but stays a little tense and springs back
-  const G = 1150, steps = 2, KB = 0.22, KM = 0.012;
+  const G = 1300, steps = 2, KB = 0.05, KM = 0.004;
   for (const ln of tv.lines) {
     const y = H / 2 + (tv.Ys - ln.y0);
     if (y < -40 || y > H + 20) {
@@ -921,10 +930,12 @@ function tvTick(t) {
     const cyLine = y + ln.h / 2, n = ln.chars.length;
     const P = ln.chars.map((c) => ln.x + c.x + c.w / 2);         // straight letter centres (x)
     // which letters run into the car: a tail on the car side of the line
+    // with a little hysteresis, so a letter near the edge does not flip back and forth
     let j = L ? n : 0;
     if (B != null) {
-      if (L) { j = P.findIndex((x) => x > B); if (j < 0) j = n; }
-      else { j = 0; while (j < n && P[j] < B) j++; }
+      const runs = (i) => (L ? P[i] > B + (ln.chars[i].rope ? -8 : 2) : P[i] < B - (ln.chars[i].rope ? -8 : 2));
+      if (L) { j = 0; while (j < n && !runs(j)) j++; }
+      else { j = n; while (j > 0 && !runs(j - 1)) j--; }
     }
     const isRope = (i) => (L ? i >= j : i < j);
     const order = [];                                             // rope letters from the anchor outwards
@@ -934,6 +945,7 @@ function tvTick(t) {
     // straight letters: the rigid line plus the springy ripple
     ln.chars.forEach((c, i) => {
       if (isRope(i)) return;
+      if (c.rope) { c.sx = c.nx - P[i]; c.sy = c.ny - cyLine; c.vx = 0; c.vy = 0; }   // ease back from the tail
       c.rope = false;
       const dy = Math.sin(P[i] * 0.03 + t * 3.2 + ln.y0 * 0.1) * tv.wob * 0.25;
       if (c.sx === undefined) { c.sx = 0; c.sy = dy; c.vx = 0; c.vy = 0; }
@@ -957,23 +969,30 @@ function tvTick(t) {
     for (let sIt = 0; sIt < steps; sIt++) {
       for (const i of order) {
         const c = ln.chars[i];
-        const vx = (c.nx - c.ox) * 0.985, vy = (c.ny - c.oy) * 0.985;
+        const vx = (c.nx - c.ox) * 0.975, vy = (c.ny - c.oy) * 0.975;
         c.ox = c.nx; c.oy = c.ny;
         c.nx += vx; c.ny += vy + G * h * h;
       }
+      {
+        // a little springiness, applied once per step: lean towards carrying on straight
+        // from the previous link, and a faint pull back to the place in the straight line
+        let px0 = anchor.x, py0 = anchor.y, dX = L ? 1 : -1, dY = 0, pI = anchorIdx;
+        for (const i of order) {
+          const c = ln.chars[i];
+          const rest = pI >= 0 && pI < n ? Math.abs(P[i] - P[pI]) : c.w / 2 + 1;
+          c.nx += (px0 + dX * rest - c.nx) * KB + (P[i] - c.nx) * KM;
+          c.ny += (py0 + dY * rest - c.ny) * KB + (cyLine - c.ny) * KM;
+          const sd = Math.hypot(c.nx - px0, c.ny - py0) || 1;
+          dX = (c.nx - px0) / sd; dY = (c.ny - py0) / sd;
+          px0 = c.nx; py0 = c.ny; pI = i;
+        }
+      }
       for (let it = 0; it < 6; it++) {
         let prevC = null, prevI = anchorIdx;                      // the first link hangs from the fixed anchor
-        let dirX = L ? 1 : -1, dirY = 0;                          // the line's own direction at the anchor
         for (const i of order) {
           const c = ln.chars[i];
           const rest = prevI >= 0 && prevI < n ? Math.abs(P[i] - P[prevI]) : c.w / 2 + 1;
           const ax = prevC ? prevC.nx : anchor.x, ay = prevC ? prevC.ny : anchor.y;
-          // stiffness: lean towards carrying on straight from the previous link
-          c.nx += (ax + dirX * rest - c.nx) * KB;
-          c.ny += (ay + dirY * rest - c.ny) * KB;
-          // memory: a gentle pull back to the letter's place in the straight line
-          c.nx += (P[i] - c.nx) * KM;
-          c.ny += (cyLine - c.ny) * KM;
           const dx = c.nx - ax, dy = c.ny - ay, d = Math.hypot(dx, dy) || 1e-3;
           const diff = (d - rest) / d;
           if (!prevC) { c.nx -= dx * diff; c.ny -= dy * diff; }
@@ -981,9 +1000,8 @@ function tvTick(t) {
             c.nx -= dx * diff * 0.5; c.ny -= dy * diff * 0.5;
             prevC.nx += dx * diff * 0.5; prevC.ny += dy * diff * 0.5;
           }
-          const sd = Math.hypot(c.nx - ax, c.ny - ay) || 1;
-          dirX = (c.nx - ax) / sd; dirY = (c.ny - ay) / sd;
-          const push = carPush(frame, c.nx, c.ny);
+
+          const push = carPush(c.nx, c.ny, L);
           if (push) { c.nx = push[0]; c.ny = push[1]; }
           if (c.ny > H + 40) c.ny = H + 40;
           prevC = c; prevI = i;

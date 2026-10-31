@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=32";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=33";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "32";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "33";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -341,38 +341,50 @@ function flowText(frame) {
   }
 }
 
-// ---------------------------------------------------------------- HUD corner: small Arseny, the same ring
-// The figure from slide 1 in the top-left box, turning on its own, dithered to the HUD's tones.
+// ---------------------------------------------------------------- HUD corner: map of Georgia
+// Georgia's outline (Natural Earth 1:10m, assets/georgia.json) as a dot screen, a scan line
+// sweeping across it and Tbilisi blinking red at the crosshair.
 const miniCv = $("#miniFig"), miniCtx = miniCv.getContext("2d");
-let miniImg = null, miniFrame = -1;
-const miniCache = new Map();
+let geo = null, geoDots = null, geoPath = null, geoBox = null;
+fetch(asset("assets/georgia.json")).then((r) => r.json()).then((j) => (geo = j)).catch(() => {});
 function drawMini(t) {
-  if (!miniImg || !BODY || !miniCv.clientWidth) return;
-  const n = BODY.frames.length, f = Math.floor(t * n / 9.6) % n;
-  const W = miniCv.clientWidth, H = miniCv.clientHeight;
-  if (miniCv.width !== W || miniCv.height !== H) { miniCv.width = W; miniCv.height = H; miniFrame = -1; miniCache.clear(); }
-  if (f === miniFrame) return;
-  miniFrame = f;
-  if (!miniCache.has(f)) {
-    const h = H - 6, w = Math.round(h * BODY.cellW / BODY.cellH);
-    const off = document.createElement("canvas");
-    off.width = w; off.height = h;
-    const o = off.getContext("2d", { willReadFrequently: true });
-    o.drawImage(miniImg, (f % BODY.cols) * BODY.cellW, Math.floor(f / BODY.cols) * BODY.cellH, BODY.cellW, BODY.cellH, 0, 0, w, h);
-    const im = o.getImageData(0, 0, w, h), d = im.data;
-    for (let i = 0; i < d.length; i += 4) {
-      const x = (i / 4) % w, y = Math.floor(i / 4 / w);
-      const l = (d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11) / 255;
-      const v = l * 1.5 + BAYER[(y % 4) * 4 + (x % 4)] - 0.5;       // brightened: it sits on black
-      d[i] = d[i + 1] = d[i + 2] = v > 0.75 ? 245 : v > 0.3 ? 130 : 40;
-      d[i + 3] = d[i + 3] > 110 ? 255 : 0;
-    }
-    o.putImageData(im, 0, 0);
-    miniCache.set(f, off);
+  if (!geo || !miniCv.clientWidth) return;
+  const dpr = Math.min(devicePixelRatio, 2), W = miniCv.clientWidth, H = miniCv.clientHeight;
+  if (miniCv.width !== Math.round(W * dpr)) {
+    miniCv.width = Math.round(W * dpr); miniCv.height = Math.round(H * dpr);
+    const w = Math.min(W - 16, (H - 12) / geo.aspect), h = w * geo.aspect;
+    geoBox = { x: (W - w) / 2, y: (H - h) / 2, w };
+    geoPath = new Path2D();
+    geo.ring.forEach(([x, y], i) => geoPath[i ? "lineTo" : "moveTo"](geoBox.x + x * w, geoBox.y + y * w));
+    geoPath.closePath();
+    geoDots = [];
+    const probe = document.createElement("canvas").getContext("2d");
+    for (let y = 1.5; y < H; y += 3) for (let x = 1.5 + (Math.round(y / 3) % 2) * 1.5; x < W; x += 3)
+      if (probe.isPointInPath(geoPath, x, y)) geoDots.push(x, y);
   }
-  const fr = miniCache.get(f);
-  miniCtx.clearRect(0, 0, W, H);
-  miniCtx.drawImage(fr, Math.round((W - fr.width) / 2), Math.round((H - fr.height) / 2));
+  const g = miniCtx, { x: bx, y: by, w } = geoBox;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  const scan = bx + ((t * 0.18) % 1.2 - 0.1) * w;               // a scan line passing west to east
+  for (let i = 0; i < geoDots.length; i += 2) {
+    const x = geoDots[i], y = geoDots[i + 1], near = Math.max(0, 1 - Math.abs(x - scan) / 18);
+    g.fillStyle = `rgba(255,255,255,${0.32 + near * 0.68})`;
+    g.fillRect(x - 0.6, y - 0.6, 1.2, 1.2);
+  }
+  g.strokeStyle = "#fff"; g.lineWidth = 1;
+  g.stroke(geoPath);
+  const tx = bx + geo.tbilisi[0] * w, ty = by + geo.tbilisi[1] * w;
+  g.strokeStyle = "rgba(255,255,255,.35)";
+  g.setLineDash([2, 3]);
+  g.beginPath(); g.moveTo(0, ty + 0.5); g.lineTo(W, ty + 0.5); g.moveTo(tx + 0.5, 0); g.lineTo(tx + 0.5, H); g.stroke();
+  g.setLineDash([]);
+  const on = Math.floor(t * 2) % 2 === 0;
+  g.fillStyle = on ? "#ff0a0a" : "#fff";
+  g.fillRect(tx - 2.5, ty - 2.5, 5, 5);
+  g.strokeStyle = "#ff0a0a";
+  g.strokeRect(tx - 5.5, ty - 5.5, 11, 11);
+  g.fillStyle = "#fff"; g.font = "700 8px 'IBM Plex Mono', monospace";
+  g.fillText("TBS", tx + 9, ty - 4);
 }
 
 // ---------------------------------------------------------------- slide-2 head: bust impostor, dithered to ink
@@ -705,7 +717,8 @@ function holdCentre(el, opening) {
   });
 }
 
-async function closeTrack() {
+// switching: going straight on to another track — the site track stays paused
+async function closeTrack(switching = false) {
   if (!tv.el || tv.leaving) return;
   tv.leaving = true;
   const { el, row } = tv;
@@ -726,18 +739,33 @@ async function closeTrack() {
   await holdCentre(el, false);
   el.remove();
   $("#s3").classList.remove("tv-room");
-  if (tv.resume) { userPaused = false; play(true).then(syncUI); }
+  if (tv.resume && !switching) { userPaused = false; play(true).then(syncUI); }
+}
+
+// track order for PREV / NEXT and autoplay: the album order, stopping at both ends
+const trackRows = () => [...document.querySelectorAll("#exitTracks .tr.playable")];
+let autoNext = true;
+try { autoNext = localStorage.getItem("xt-auto") !== "0"; } catch {}
+function stepTrack(d) {
+  const rows = trackRows(), i = rows.indexOf(tv.row), next = rows[i + d];
+  if (tv.el && !tv.busy && !tv.leaving && next) openTrack(next);
+}
+function trackEnded() {
+  if (ext) { ext.paused = true; syncUI(); }
+  if (autoNext) stepTrack(1);
 }
 
 async function openTrack(row) {
   const title = row.dataset.t, cfg = PLAYABLE[title];
   if (tv.busy || (tv.el && tv.row === row)) return;
   tv.busy = true;
-  if (tv.el) await closeTrack();
+  const switching = !!tv.el, wasResume = tv.resume;
+  if (switching) await closeTrack(true);
   const el = document.createElement("div");
   el.className = "tv";
   el.innerHTML = `<div class="tv-bar"><button class="pl-btn tv-back" type="button">&#9664; BACK</button>
     <span class="tv-title">${title}</span>
+    <span class="tv-nav"><button class="pl-btn tv-prev" type="button" aria-label="previous track">&#9664;&#9664;</button><button class="pl-btn tv-auto" type="button"></button><button class="pl-btn tv-next" type="button" aria-label="next track">&#9654;&#9654;</button></span>
     ${cfg.bc ? `<iframe class="bc" title="${title} on Bandcamp"
       src="https://bandcamp.com/EmbeddedPlayer/album=${BC_ALBUM}/size=small/bgcol=000000/linkcol=ffffff/track=${cfg.bc}/transparent=true/"></iframe>` : ""}
     </div>
@@ -750,11 +778,23 @@ async function openTrack(row) {
     title, times: cfg.times || savedTimes(title), syncing: SYNC, tapTimes: [], appear0: 0, peaks: null,
     scrubbing: false, Ys: null, prevYs: null, wob: 0, lastT: 0, leaving: false, leave0: 0, size: cfg.size || 1 });
   tv.ctx = tv.cv.getContext("2d");
-  el.querySelector(".tv-back").addEventListener("click", closeTrack);
+  el.querySelector(".tv-back").addEventListener("click", () => closeTrack());
+  const rows = trackRows(), idx = rows.indexOf(row);
+  el.querySelector(".tv-prev").disabled = idx <= 0;
+  el.querySelector(".tv-next").disabled = idx >= rows.length - 1;
+  el.querySelector(".tv-prev").addEventListener("click", () => stepTrack(-1));
+  el.querySelector(".tv-next").addEventListener("click", () => stepTrack(1));
+  const autoBtn = el.querySelector(".tv-auto");
+  const showAuto = () => { autoBtn.textContent = `AUTO ${autoNext ? "ON" : "OFF"}`; autoBtn.classList.toggle("on", autoNext); };
+  showAuto();
+  autoBtn.addEventListener("click", () => {
+    autoNext = !autoNext; showAuto();
+    try { localStorage.setItem("xt-auto", autoNext ? "1" : "0"); } catch {}
+  });
 
   // one player: the site track steps aside, the HUD now drives this one
-  tv.resume = !audio.paused;
-  if (tv.resume) audio.pause();
+  tv.resume = switching ? wasResume : !audio.paused;
+  if (!audio.paused) audio.pause();
   ext = cfg.bc ? bcClock(title) : { paused: true, play() { tv.widget?.play(); }, pause() { tv.widget?.pause(); },
     seek(k) { tv.widget?.seekTo(k * tv.dur * 1000); }, volume(v) { tv.widget?.setVolume(v * 100); } };
   setPlayerTitle(title, "XANAX TBILISI");
@@ -829,7 +869,7 @@ async function openTrack(row) {
     });
     w.bind(SC.Widget.Events.PLAY, () => { if (ext) { ext.paused = false; syncUI(); } });
     w.bind(SC.Widget.Events.PAUSE, () => { if (ext) { ext.paused = true; syncUI(); } });
-    w.bind(SC.Widget.Events.FINISH, () => { if (ext) { ext.paused = true; syncUI(); } });
+    w.bind(SC.Widget.Events.FINISH, () => { if (tv.el === el) trackEnded(); });
     w.bind(SC.Widget.Events.PLAY_PROGRESS, (e) => {
       if (tv.scrubbing) return;
       tv.progress = e.relativePosition;
@@ -857,7 +897,10 @@ function bcClock(title) {
     tick() {
       if (tv.scrubbing) return;
       let p = pos();
-      if (p >= tv.dur) { at = 0; t0 = performance.now(); p = 0; }
+      if (p >= tv.dur) {
+        at = 0; t0 = performance.now(); p = 0;
+        if (!c.paused) { c.paused = true; syncUI(); if (autoNext) stepTrack(1); }
+      }
       tv.pos = p; tv.progress = p / tv.dur;
       plTime.textContent = `${mmss(p)} / ${mmss(tv.dur)}`;
     } };
@@ -1174,7 +1217,6 @@ Promise.all([
   tex.loadAsync(asset("assets/arseny_body.webp")).then((t) => { target += 35; return t; }),
   img(asset("assets/arseny_bust.webp")).then((i) => { target += 25; return i; }),
   img(asset("assets/xanax_bar.webp")).then((i) => (pillImg = i)),
-  img(asset("assets/arseny_body.webp")).then((i) => (miniImg = i)),
   document.fonts.ready,
 ]).then(([body, bustJ, atlas, bust]) => {
   BODY = body; bustMeta = bustJ; bustImg = bust;

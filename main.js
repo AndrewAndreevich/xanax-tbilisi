@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=38";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=39";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "38";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "39";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -417,7 +417,10 @@ function drawHead(f) {
   headCtx.putImageData(headCache.get(f), 0, 0);
 }
 // head turns away and back while the cross rotates
-const HEAD_SEQ = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0];   // one full turn, in order
+// the head keeps turning on its own (one turn every HEAD_TURN s, frames in order); scrolling
+// through slide 2 adds one more turn on top
+const HEAD_TURN = 8;
+let headP2 = 0;
 
 function resize() {
   const w = innerWidth, h = innerHeight;
@@ -472,7 +475,7 @@ function onScroll() {
   cross.style.setProperty("--mx", clamp((p2 - 0.3) * 3));
   headCv.style.setProperty("--hy", `${(1 - enter) * 22}vh`);
   lion.style.setProperty("--ly", `${(1 - enter) * 14 - p2 * 8}vh`);
-  drawHead(HEAD_SEQ[Math.floor(p2 * (HEAD_SEQ.length - 1) + 0.5)]);
+  headP2 = p2;
   bignum.textContent = NUMS[Math.min(NUMS.length - 1, Math.floor(p2 * NUMS.length))];
   canvas.style.visibility = r2.top > 0 ? "visible" : "hidden";
   $("#terrainDark").style.visibility = canvas.style.visibility;
@@ -1321,6 +1324,10 @@ function frame() {
   }
   tvTick(t);
   drawMini(t);
+  if (bustMeta && s2.getBoundingClientRect().bottom > 0 && s2.getBoundingClientRect().top < innerHeight) {
+    const n = bustMeta.count || 16;
+    drawHead(Math.floor((t / HEAD_TURN + headP2) * n) % n);
+  }
   // Xanax bars on slide 3, only while it is on screen
   const pr = pillCv.getBoundingClientRect();
   if (pr.bottom > 0 && pr.top < innerHeight) drawPills(dt);

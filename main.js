@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=13";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=14";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "13";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "14";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -494,28 +494,12 @@ $("#enter").addEventListener("click", () => {
 });
 
 // ---------------------------------------------------------------- slide 3: Xanax bars pattern
-// A staggered grid of 2 mg "bars" drifting and spinning. On a phone the tilt sets
-// the spin direction and speed (left/right) and the drift (both axes); on a desktop
-// the mouse does the same. Drawn at half resolution for the pixel look.
+// A staggered field of 2 mg bars (photo, assets/xanax_bar.webp), all at one angle,
+// drifting. On a phone the tilt steers the drift; on a desktop the mouse does.
 const pillCv = $("#pills"), pillCtx = pillCv.getContext("2d");
-let PILL = null;
-const makePill = () => {                                 // one sprite, reused for every bar; built after fonts load
-  const c = document.createElement("canvas"), w = 120, h = 30;
-  c.width = w; c.height = h;
-  const g = c.getContext("2d");
-  const r = h / 2;
-  g.fillStyle = "#f2f2f2";
-  g.beginPath(); g.moveTo(r, 0); g.lineTo(w - r, 0); g.arc(w - r, r, r, -Math.PI / 2, Math.PI / 2);
-  g.lineTo(r, h); g.arc(r, r, r, Math.PI / 2, Math.PI * 1.5); g.fill();
-  g.fillStyle = "#9a9a9a";                               // three score lines: four breakable segments
-  for (let i = 1; i < 4; i++) g.fillRect(Math.round(w * i / 4) - 1, 3, 2, h - 6);
-  g.font = "700 13px 'Chakra Petch', 'IBM Plex Mono', monospace";   // the imprint runs across the scores
-  g.textAlign = "center"; g.textBaseline = "middle";
-  g.fillText("X A N A X", w / 2, r + 1);
-  return c;
-};
+let pillImg = null;
 const tilt = { x: 0, y: 0, tx: 0, ty: 0 };              // -1..1, smoothed
-let pillSpin = 0, pillDX = 0, pillDY = 0, gyroOn = false;
+let pillDX = 0, pillDY = 0, gyroOn = false;
 addEventListener("deviceorientation", (e) => {
   if (e.gamma == null) return;
   gyroOn = true;
@@ -532,38 +516,35 @@ function askGyro() {
   const D = window.DeviceOrientationEvent;
   if (D && typeof D.requestPermission === "function") D.requestPermission().catch(() => {});
 }
+const PILL_ANGLE = -0.32;                               // every bar at the same slant
 function drawPills(dt) {
-  PILL ||= makePill();
+  if (!pillImg) return;
+  const dpr = pillCv.width / Math.max(1, pillCv.clientWidth);
   const w = pillCv.width, h = pillCv.height;
   tilt.x += (tilt.tx - tilt.x) * Math.min(1, dt * 4);
   tilt.y += (tilt.ty - tilt.y) * Math.min(1, dt * 4);
-  const spinRate = 0.25 + tilt.x * 1.6;                 // tilt left -> spin one way, right -> the other
-  pillSpin += spinRate * dt;
-  pillDX += (8 + tilt.x * 60) * dt;
-  pillDY += (-14 + tilt.y * 60) * dt;
+  pillDX += (10 + tilt.x * 90) * dt * dpr;              // a slow default drift, steered by tilt
+  pillDY += (-12 + tilt.y * 90) * dt * dpr;
   pillCtx.clearRect(0, 0, w, h);
-  const sx = 92, sy = 54;                                // grid step, in canvas px (half resolution)
+  const pw = 96 * dpr, ph = pw * pillImg.height / pillImg.width;
+  const sx = 150 * dpr, sy = 74 * dpr;                  // grid step
   const ox = ((pillDX % sx) + sx) % sx, oy = ((pillDY % sy) + sy) % sy;
-  for (let gy = -sy + oy; gy < h + sy; gy += sy) {
-    const rr = Math.round((gy - pillDY) / sy);            // stable ids: position in the unscrolled grid
+  for (let gy = -sy + oy, row = 0; gy < h + sy; gy += sy, row++) {
+    const rr = Math.round((gy - pillDY) / sy);
     const stag = rr & 1 ? sx / 2 : 0;
     for (let gx = -sx + ox + stag; gx < w + sx; gx += sx) {
-      const cc = Math.round((gx - stag - pillDX) / sx);
-      const seed = Math.sin(cc * 12.9898 + rr * 78.233) * 43758.5453;
-      const base = (seed - Math.floor(seed)) * Math.PI * 2;
-      const dir = (rr + cc) & 1 ? 1 : -1;                // neighbours counter-rotate
       pillCtx.save();
       pillCtx.translate(gx, gy);
-      pillCtx.rotate(base + pillSpin * dir);
-      pillCtx.drawImage(PILL, -PILL.width / 4, -PILL.height / 4, PILL.width / 2, PILL.height / 2);
+      pillCtx.rotate(PILL_ANGLE);
+      pillCtx.drawImage(pillImg, -pw / 2, -ph / 2, pw, ph);
       pillCtx.restore();
     }
   }
 }
 function sizePills() {
-  const r = pillCv.getBoundingClientRect();
-  pillCv.width = Math.max(1, Math.round(r.width / 2));
-  pillCv.height = Math.max(1, Math.round(r.height / 2));
+  const r = pillCv.getBoundingClientRect(), dpr = Math.min(devicePixelRatio, 2);
+  pillCv.width = Math.max(1, Math.round(r.width * dpr));
+  pillCv.height = Math.max(1, Math.round(r.height * dpr));
 }
 
 // ---------------------------------------------------------------- loop
@@ -616,6 +597,7 @@ Promise.all([
   fetch(asset("assets/arseny_bust.json")).then((r) => r.json()),
   tex.loadAsync(asset("assets/arseny_body.webp")).then((t) => { target += 35; return t; }),
   img(asset("assets/arseny_bust.webp")).then((i) => { target += 25; return i; }),
+  img(asset("assets/xanax_bar.webp")).then((i) => (pillImg = i)),
   document.fonts.ready,
 ]).then(([body, bustJ, atlas, bust]) => {
   BODY = body; bustMeta = bustJ; bustImg = bust;

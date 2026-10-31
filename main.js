@@ -61,6 +61,8 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
+const V = "8";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
@@ -380,7 +382,9 @@ let actx = null, analyser = null, freq = null, userPaused = false, vol = 1;
 
 // The analyser reroutes the element through an AudioContext, which starts
 // suspended outside a user gesture — so it is only built from a gesture.
+const TOUCH = matchMedia("(pointer: coarse)").matches;
 function ensureAnalyser() {
+  if (TOUCH) return;                                 // iOS mutes AudioContext output with the ringer switch; play the element directly
   if (analyser) { if (actx.state === "suspended") actx.resume(); return; }
   try {
     const ctx = actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -436,12 +440,21 @@ function vizFrame() {
   if (analyser && !audio.paused) {
     analyser.getByteFrequencyData(freq);
     for (let i = 0; i < VIZ_N; i++) vizBars[i].style.transform = `scaleY(${Math.max(0.04, freq[i + 2] / 255)})`;
+  } else if (!audio.paused) {                        // no analyser (touch): a fake but lively meter
+    const t = audio.currentTime;
+    vizBars.forEach((b, i) => b.style.transform = `scaleY(${Math.max(0.04, 0.5 + 0.45 * Math.sin(t * (3 + i * 0.37) + i) * Math.sin(t * 1.7 + i * 0.5))})`);
   } else {
     for (const b of vizBars) b.style.transform = "scaleY(.04)";
   }
   requestAnimationFrame(vizFrame);
 }
 vizFrame();
+
+$("#enter").addEventListener("click", () => {
+  userPaused = false;
+  play(true).then(syncUI);
+  $("#loader").classList.add("done");
+});
 
 // ---------------------------------------------------------------- loop
 const clock = new THREE.Clock();
@@ -474,15 +487,15 @@ const lt = setInterval(() => {
   shown = Math.min(target, shown + 3 + Math.random() * 6);
   loadNum.textContent = String(shown | 0).padStart(3, "0");
   loadBar.style.transform = `scaleX(${shown / 100})`;
-  if (shown >= 100) { clearInterval(lt); $("#loader").classList.add("done"); }
+  if (shown >= 100) { clearInterval(lt); $("#loader").classList.add("ready"); }
 }, 40);
 const img = (src) => new Promise((ok, err) => { const i = new Image(); i.onload = () => ok(i); i.onerror = err; i.src = src; });
 const tex = new THREE.TextureLoader();
 Promise.all([
-  fetch("assets/arseny_body.json").then((r) => r.json()).then((j) => { target += 30; return j; }),
-  fetch("assets/arseny_bust.json").then((r) => r.json()),
-  tex.loadAsync("assets/arseny_body.webp").then((t) => { target += 35; return t; }),
-  img("assets/arseny_bust.webp").then((i) => { target += 25; return i; }),
+  fetch(asset("assets/arseny_body.json")).then((r) => r.json()).then((j) => { target += 30; return j; }),
+  fetch(asset("assets/arseny_bust.json")).then((r) => r.json()),
+  tex.loadAsync(asset("assets/arseny_body.webp")).then((t) => { target += 35; return t; }),
+  img(asset("assets/arseny_bust.webp")).then((i) => { target += 25; return i; }),
   document.fonts.ready,
 ]).then(([body, bustJ, atlas, bust]) => {
   BODY = body; bustMeta = bustJ; bustImg = bust;
@@ -490,8 +503,10 @@ Promise.all([
   figMat.uniforms.uAtlas.value = atlas;
   figMat.uniforms.uGrid.value.set(body.cols, body.rows);
   target = 100;
-  play().then(syncUI);                                         // autoplay if the browser allows it
   resize();
   onScroll();
   frame();
+}).catch((err) => {                                   // never leave the page stuck behind the loader
+  console.error("asset load failed", err);
+  target = 100;
 });

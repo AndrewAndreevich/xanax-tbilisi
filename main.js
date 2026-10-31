@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=21";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=22";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "21";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "22";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -387,6 +387,7 @@ let p1 = 0, lastTrack = -1, glitchT = 0;
 let spin = 0, spinS = 0;
 
 function onScroll() {
+  document.body.classList.toggle("scrolled", scrollY > innerHeight * 0.3);
   const r1 = s1.getBoundingClientRect();
   p1 = clamp(-r1.top / (r1.height - innerHeight));
   $("#progBar").style.setProperty("--p", p1);
@@ -899,7 +900,10 @@ function tvTick(t) {
   // the part of a line that does not fit beside the car hangs off the car's edge like a
   // rope of letters: it has weight, swings when the text moves, lies on the car above its
   // middle and dangles below it — the letters never pass through the car
-  const G = 1500, steps = 2;
+  // G: weight; KB: bending stiffness (each link wants to continue the previous one's
+  // direction); KM: shape memory (each letter is drawn back towards its place in the
+  // straight line) — together the tail sags but stays a little tense and springs back
+  const G = 1150, steps = 2, KB = 0.22, KM = 0.012;
   for (const ln of tv.lines) {
     const y = H / 2 + (tv.Ys - ln.y0);
     if (y < -40 || y > H + 20) {
@@ -959,10 +963,17 @@ function tvTick(t) {
       }
       for (let it = 0; it < 6; it++) {
         let prevC = null, prevI = anchorIdx;                      // the first link hangs from the fixed anchor
+        let dirX = L ? 1 : -1, dirY = 0;                          // the line's own direction at the anchor
         for (const i of order) {
           const c = ln.chars[i];
           const rest = prevI >= 0 && prevI < n ? Math.abs(P[i] - P[prevI]) : c.w / 2 + 1;
           const ax = prevC ? prevC.nx : anchor.x, ay = prevC ? prevC.ny : anchor.y;
+          // stiffness: lean towards carrying on straight from the previous link
+          c.nx += (ax + dirX * rest - c.nx) * KB;
+          c.ny += (ay + dirY * rest - c.ny) * KB;
+          // memory: a gentle pull back to the letter's place in the straight line
+          c.nx += (P[i] - c.nx) * KM;
+          c.ny += (cyLine - c.ny) * KM;
           const dx = c.nx - ax, dy = c.ny - ay, d = Math.hypot(dx, dy) || 1e-3;
           const diff = (d - rest) / d;
           if (!prevC) { c.nx -= dx * diff; c.ny -= dy * diff; }
@@ -970,6 +981,8 @@ function tvTick(t) {
             c.nx -= dx * diff * 0.5; c.ny -= dy * diff * 0.5;
             prevC.nx += dx * diff * 0.5; prevC.ny += dy * diff * 0.5;
           }
+          const sd = Math.hypot(c.nx - ax, c.ny - ay) || 1;
+          dirX = (c.nx - ax) / sd; dirY = (c.ny - ay) / sd;
           const push = carPush(frame, c.nx, c.ny);
           if (push) { c.nx = push[0]; c.ny = push[1]; }
           if (c.ny > H + 40) c.ny = H + 40;

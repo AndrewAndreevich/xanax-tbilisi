@@ -91,7 +91,9 @@ em { font-style: normal; color: var(--dim); }
 .bar-play { display: none; pointer-events: auto; font-size: 9px; white-space: nowrap; }
 #plTime { font-variant-numeric: tabular-nums; }
 
-.scroll-hint { position: absolute; right: 12px; bottom: 40px; font-size: 9px; animation: blink 1.2s steps(2) infinite; }
+/* a hint for the first screen only: left of the player, gone once the page moves */
+.scroll-hint { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); font-size: 9px; animation: blink 1.2s steps(2) infinite; transition: opacity .4s; }
+.scrolled .scroll-hint { opacity: 0; animation: none; }
 @keyframes blink { 50% { opacity: 0; } }
 
 .bar {
@@ -214,7 +216,7 @@ em { font-style: normal; color: var(--dim); }
   .bar-play { display: block; }
   .clock { display: none; }
   .clock { font-size: 9px; }
-  .scroll-hint { right: var(--gutter); }
+  .scroll-hint { bottom: 64px; }
   .case { clip-path: inset(36px 0 34px 0); }      /* and below the X/Y strip on phones */
   .case p { font-size: 7.5px; white-space: normal; width: max-content; max-width: 44vw; }
   .cross { width: 150vw; top: 44%; }

@@ -68,6 +68,24 @@ em { font-style: normal; color: var(--dim); }
 #tracks li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .total { order: 5; display: flex; justify-content: space-between; font-size: 9px; border-top: 1px solid rgba(255,255,255,.2); padding-top: 3px; }
 
+/* audio player — lives in the right panel, compact button in the bar on phones */
+.player { order: 6; margin-top: auto; pointer-events: auto; border-top: 1px solid rgba(255,255,255,.25); padding-top: 6px; display: flex; flex-direction: column; gap: 6px; font-size: 9px; }
+.pl-head, .pl-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.pl-head span:last-child.wait { animation: blink 1s steps(2) infinite; }
+.pl-title { overflow: hidden; white-space: nowrap; font-family: var(--disp); font-weight: 700; font-size: 13px; }
+.pl-title-in { display: inline-block; animation: tick 14s linear infinite; }
+.pl-title-in span { margin-right: 22px; }
+.pl-title-in span:nth-child(even) { color: rgba(255,255,255,.45); font-size: 9px; }
+.paused .pl-title-in { animation-play-state: paused; }
+.pl-viz { height: 26px; display: flex; align-items: flex-end; gap: 2px; }
+.pl-viz i { flex: 1; height: 100%; background: #fff; transform-origin: bottom; transform: scaleY(.04); }
+.pl-bar { height: 7px; border: 1px solid #fff; cursor: pointer; position: relative; }
+.pl-bar i { position: absolute; inset: 1px auto 1px 1px; width: calc((100% - 2px) * var(--t, 0)); background: #fff; }
+.pl-btn, .bar-play { font: inherit; color: inherit; background: none; border: 1px solid #fff; padding: 2px 7px; cursor: pointer; letter-spacing: inherit; text-transform: uppercase; }
+.pl-btn:hover, .bar-play:hover { background: #fff; color: #000; }
+.bar-play { display: none; pointer-events: auto; font-size: 9px; white-space: nowrap; }
+#plTime { font-variant-numeric: tabular-nums; }
+
 .scroll-hint { position: absolute; right: 12px; bottom: 40px; font-size: 9px; animation: blink 1.2s steps(2) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 
@@ -102,8 +120,8 @@ em { font-style: normal; color: var(--dim); }
 .tear { position: absolute; left: 0; top: -59px; width: 100%; height: 60px; display: block; }
 .s2-sticky { position: sticky; top: 0; height: 100vh; overflow: hidden; }
 .terrain.light { position: absolute; height: 55%; }
-/* the pvf_objects fox, dithered into the hills behind the cross */
-.fox { position: absolute; right: 21vw; bottom: 4vh; height: 52vh; aspect-ratio: 457 / 720; image-rendering: pixelated; opacity: .6; transform: translateY(var(--fy, 0)); }
+/* the Xanax Tbilisi tiger from the album cover, faint behind the cross */
+.lion { position: absolute; right: 12vw; bottom: 6vh; width: min(46vw, 760px); opacity: .28; transform: translateY(var(--ly, 0)); pointer-events: none; }
 .cross { position: absolute; left: 50%; top: 46%; width: min(82vw, 1150px); aspect-ratio: 1; transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) scale(var(--sc, 1)); }
 .cross i { position: absolute; background: var(--red); display: block; }
 .cross .bar-v { left: 43%; width: 14%; top: -30%; height: 130%; }
@@ -153,6 +171,8 @@ em { font-style: normal; color: var(--dim); }
   .panel.left .row:not(.small) { justify-content: flex-start; }
   .bar { gap: 10px; padding: 0 var(--gutter); }
   .bar .links a:not(:first-child) { display: none; }
+  .bar-play { display: block; }
+  .clock { display: none; }
   .clock { font-size: 9px; }
   .scroll-hint { right: var(--gutter); }
   .case p { font-size: 7.5px; white-space: normal; width: max-content; max-width: 44vw; }
@@ -160,7 +180,7 @@ em { font-style: normal; color: var(--dim); }
   .head { height: auto; width: 125vw; }
   .bignum { left: 12%; top: 40%; font-size: 72px; }
   .geo { right: var(--gutter); top: 11vh; }
-  .fox { right: -6vw; bottom: 2vh; height: 34vh; }
+  .lion { right: -14vw; bottom: 8vh; width: 105vw; opacity: .22; }
   #s3 { padding: 14vh var(--gutter) 70px; }
 }
 @media (prefers-reduced-motion: reduce) {

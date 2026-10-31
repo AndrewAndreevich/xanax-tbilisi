@@ -311,28 +311,6 @@ function drawHead(f) {
   }
   headCtx.putImageData(headCache.get(f), 0, 0);
 }
-// ---------------------------------------------------------------- slide-2 fox: dithered grey, in the background
-const foxCv = $("#fox");
-let foxImg = null;
-function drawFox() {
-  if (!foxImg) return;
-  const r = foxCv.getBoundingClientRect(), cell = 3;
-  const w = Math.max(1, Math.round(r.width / cell)), h = Math.max(1, Math.round(r.height / cell));
-  foxCv.width = w; foxCv.height = h;
-  const c = foxCv.getContext("2d", { willReadFrequently: true });
-  c.drawImage(foxImg, 0, 0, w, h);
-  const img = c.getImageData(0, 0, w, h), d = img.data;
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const i = (y * w + x) * 4;
-    if (d[i + 3] < 128) { d[i + 3] = 0; continue; }
-    const l = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
-    const ink = 1 - l * 0.85 > BAYER[(y & 3) * 4 + (x & 3)];
-    const v = ink ? 120 : 200;
-    d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = ink ? 255 : 110;
-  }
-  c.putImageData(img, 0, 0);
-}
-
 // head turns away and back while the cross rotates
 const HEAD_SEQ = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0];   // one full turn, in order
 
@@ -347,7 +325,6 @@ function resize() {
   panelW = $(".panel.left").offsetWidth;
   drawTerrain($("#terrainDark"), "#2b2b2b", 3.1, 1.25);
   drawTerrain($("#terrainLight"), "#bdbdbd", 7.7, 1.5);
-  drawFox();
 }
 addEventListener("resize", resize);
 
@@ -364,7 +341,7 @@ const tickClock = () => ($("#clock").textContent = clockFmt.format(new Date()));
 tickClock(); setInterval(tickClock, 1000);
 
 const trackEls = [...document.querySelectorAll("#tracks li")];
-const s1 = $("#s1"), s2 = $("#s2"), cross = $("#cross"), bignum = $("#bignum");
+const s1 = $("#s1"), s2 = $("#s2"), cross = $("#cross"), bignum = $("#bignum"), lion = $("#lion");
 const NUMS = ["2022", "+995", "6.66", "0300"];
 let p1 = 0, lastTrack = -1, glitchT = 0;
 
@@ -382,13 +359,89 @@ function onScroll() {
   cross.style.setProperty("--sc", 0.85 + 0.15 * enter + 0.12 * p2);
   cross.style.setProperty("--mx", clamp((p2 - 0.3) * 3));
   headCv.style.setProperty("--hy", `${(1 - enter) * 22}vh`);
-  foxCv.style.setProperty("--fy", `${(1 - enter) * 10 - p2 * 6}vh`);
+  lion.style.setProperty("--ly", `${(1 - enter) * 14 - p2 * 8}vh`);
   drawHead(HEAD_SEQ[Math.floor(p2 * (HEAD_SEQ.length - 1) + 0.5)]);
   bignum.textContent = NUMS[Math.min(NUMS.length - 1, Math.floor(p2 * NUMS.length))];
   canvas.style.visibility = r2.top > 0 ? "visible" : "hidden";
   $("#terrainDark").style.visibility = canvas.style.visibility;
 }
 addEventListener("scroll", onScroll, { passive: true });
+
+// ---------------------------------------------------------------- audio player
+// The track tries to start on load; browsers block sound until the first
+// click / tap / key, so in that case it starts on the first one of those.
+const audio = $("#track"), player = $("#player");
+const plBtn = $("#plBtn"), plState = $("#plState"), plTime = $("#plTime"), plMute = $("#plMute"), barPlay = $("#barPlay");
+const VIZ_N = 32;
+$("#plViz").innerHTML = "<i></i>".repeat(VIZ_N);
+const vizBars = [...document.querySelectorAll("#plViz i")];
+const mmss = (t) => isFinite(t) ? `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(Math.floor(t % 60)).padStart(2, "0")}` : "00:00";
+let actx = null, analyser = null, freq = null, userPaused = false, vol = 1;
+
+// The analyser reroutes the element through an AudioContext, which starts
+// suspended outside a user gesture — so it is only built from a gesture.
+function ensureAnalyser() {
+  if (analyser) { if (actx.state === "suspended") actx.resume(); return; }
+  try {
+    const ctx = actx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = ctx.createMediaElementSource(audio);
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 128;
+    src.connect(analyser); analyser.connect(ctx.destination);
+    freq = new Uint8Array(analyser.frequencyBinCount);
+    if (ctx.state === "suspended") ctx.resume();
+  } catch { analyser = null; }
+}
+function play(gesture) {
+  if (gesture) ensureAnalyser();
+  return audio.play().then(() => true, () => false);
+}
+function syncUI() {
+  const on = !audio.paused;
+  plBtn.textContent = on ? "PAUSE" : "PLAY";
+  barPlay.querySelector("b").textContent = on ? "PAUSE" : "PLAY";
+  player.classList.toggle("paused", !on);
+  plState.textContent = on ? "ON AIR" : (userPaused ? "PAUSED" : "CLICK TO PLAY");
+  plState.classList.toggle("wait", !on && !userPaused);
+}
+function toggle() {
+  if (audio.paused) { userPaused = false; play(true).then(syncUI); }
+  else { userPaused = true; audio.pause(); }
+}
+plBtn.addEventListener("click", toggle);
+barPlay.addEventListener("click", toggle);
+plMute.addEventListener("click", () => {
+  vol = vol > 0.5 ? 0.5 : vol > 0 ? 0 : 1;                  // 100 → 50 → 0 → 100
+  audio.volume = vol;
+  plMute.textContent = `VOL ${String(Math.round(vol * 100)).padStart(3, "0")}`;
+});
+$("#plBar").addEventListener("click", (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  if (isFinite(audio.duration)) audio.currentTime = clamp((e.clientX - r.left) / r.width) * audio.duration;
+});
+["play", "pause"].forEach((ev) => audio.addEventListener(ev, syncUI));
+audio.addEventListener("timeupdate", () => {
+  plTime.textContent = `${mmss(audio.currentTime)} / ${mmss(audio.duration)}`;
+  $("#plBar").style.setProperty("--t", audio.duration ? audio.currentTime / audio.duration : 0);
+});
+// first gesture anywhere starts the track, unless that gesture is on the player's own buttons
+const kick = (e) => {
+  if (e.target.closest?.(".pl-btn, .bar-play")) return;
+  if (!userPaused) play(true).then(syncUI);
+  ["pointerdown", "keydown", "touchstart"].forEach((t) => removeEventListener(t, kick, true));
+};
+["pointerdown", "keydown", "touchstart"].forEach((t) => addEventListener(t, kick, true));
+
+function vizFrame() {
+  if (analyser && !audio.paused) {
+    analyser.getByteFrequencyData(freq);
+    for (let i = 0; i < VIZ_N; i++) vizBars[i].style.transform = `scaleY(${Math.max(0.04, freq[i + 2] / 255)})`;
+  } else {
+    for (const b of vizBars) b.style.transform = "scaleY(.04)";
+  }
+  requestAnimationFrame(vizFrame);
+}
+vizFrame();
 
 // ---------------------------------------------------------------- loop
 const clock = new THREE.Clock();
@@ -430,7 +483,6 @@ Promise.all([
   fetch("assets/arseny_bust.json").then((r) => r.json()),
   tex.loadAsync("assets/arseny_body.webp").then((t) => { target += 35; return t; }),
   img("assets/arseny_bust.webp").then((i) => { target += 25; return i; }),
-  img("assets/fox.png").then((i) => (foxImg = i)),
   document.fonts.ready,
 ]).then(([body, bustJ, atlas, bust]) => {
   BODY = body; bustMeta = bustJ; bustImg = bust;
@@ -438,6 +490,7 @@ Promise.all([
   figMat.uniforms.uAtlas.value = atlas;
   figMat.uniforms.uGrid.value.set(body.cols, body.rows);
   target = 100;
+  play().then(syncUI);                                         // autoplay if the browser allows it
   resize();
   onScroll();
   frame();

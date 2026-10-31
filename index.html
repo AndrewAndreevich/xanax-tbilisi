@@ -40,12 +40,24 @@
     <div class="coord r">044.7987° E</div>
     <ol id="tracks"></ol>
     <div class="total"><span>[17]</span><span>31:14</span></div>
+    <div class="player" id="player">
+      <div class="pl-head"><span>// NOW PLAYING</span><span id="plState">LOADING</span></div>
+      <div class="pl-title"><div class="pl-title-in"><span>SILENCE IN MOTION</span><span>HELLO_ANDREYANDREEVICH</span><span>SILENCE IN MOTION</span><span>HELLO_ANDREYANDREEVICH</span></div></div>
+      <div class="pl-viz" id="plViz"></div>
+      <div class="pl-bar" id="plBar"><i id="plFill"></i></div>
+      <div class="pl-row">
+        <button class="pl-btn" id="plBtn" type="button">PLAY</button>
+        <span id="plTime">00:00 / 00:00</span>
+        <button class="pl-btn" id="plMute" type="button">VOL 100</button>
+      </div>
+    </div>
   </aside>
 
   <div class="scroll-hint">SCROLL</div>
 
   <nav class="bar">
     <div class="links"><a href="#s1">INDEX <em>+</em></a><a href="#s2">BAPTIST <em>+</em></a><a href="#s3">TRACKS <em>+</em></a></div>
+    <button class="bar-play" id="barPlay" type="button"><b>PLAY</b> SILENCE IN MOTION</button>
     <div class="clock"><span class="dot"></span>TBS GMT+4 <b id="clock">00:00:00</b></div>
     <a class="cta" href="https://xanaxtbilisi.bandcamp.com/" target="_blank" rel="noopener">GO HOME <em>+</em></a>
   </nav>
@@ -62,7 +74,7 @@
     <svg class="tear" viewBox="0 0 1000 60" preserveAspectRatio="none" id="tear"></svg>
     <div class="s2-sticky">
       <canvas id="terrainLight" class="terrain light"></canvas>
-      <canvas class="fox" id="fox" aria-hidden="true"></canvas>
+      <img class="lion" id="lion" src="assets/lion.png" alt="" aria-hidden="true">
       <div class="cross" id="cross">
         <i class="bar-v"></i><i class="bar-h"></i>
         <i class="mini-x q1"></i><i class="mini-x q2"></i><i class="mini-x q3"></i><i class="mini-x q4"></i>
@@ -88,6 +100,7 @@
   </section>
 </main>
 
+<audio id="track" src="assets/audio/silence_in_motion.mp3" preload="auto" loop></audio>
 <script type="module" src="main.js"></script>
 </body>
 </html>

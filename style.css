@@ -200,6 +200,7 @@ em { font-style: normal; color: var(--dim); }
 .tv-lyrics p span { display: inline-block; white-space: pre; }
 .tv-lyrics p.bent span { position: absolute; left: 0; top: 0; will-change: transform; }   /* each letter placed by tvTick */
 .tv-lyrics p.cur { color: var(--red); }
+.tv-lyrics p span.on { color: var(--red); }                                                   /* the word being sung */
 /* the SoundCloud widget only plays; the HUD player is the one control */
 .tv iframe { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; border: 0; opacity: 0; pointer-events: none; }
 #s3.tv-room { padding-bottom: 100vh; }             /* scroll room so the opening line can sit mid-screen */

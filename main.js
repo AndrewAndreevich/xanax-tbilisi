@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=50";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=51";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "50";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "51";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -800,6 +800,8 @@ const loadScApi = () => scApi || (scApi = new Promise((ok, err) => {
 }));
 // fetched while the page is idle, so a click on a track only waits for the widget itself
 setTimeout(() => loadScApi().catch(() => { scApi = null; }), 3000);
+// when each word of the lyrics is sung (Whisper, matched to the SoundCloud text)
+const lyricSync = fetch(asset("assets/lyrics_sync.json")).then((r) => r.json()).catch(() => ({}));
 const impostors = {};
 const loadImpostor = (name) => impostors[name] || (impostors[name] = Promise.all([
   fetch(asset(`assets/${name}.json`)).then((r) => r.json()),
@@ -977,7 +979,7 @@ function setupTrack(row) {
   tv.ctx.clearRect(0, 0, tv.cv.width, tv.cv.height);
   markTrack(title);
   Object.assign(tv, { row, token: {}, lines: [], streamH: 0, progress: 0, pos: 0, dur: 0, widget: null, img: null, meta: null,
-    title, times: cfg.times || savedTimes(title), syncing: SYNC, tapTimes: [], appear0: 0, peaks: null,
+    title, times: cfg.times || savedTimes(title), syncing: SYNC, tapTimes: [], words: null, appear0: 0, peaks: null,
     scrubbing: false, Ys: null, prevYs: null, wob: 0, lastT: 0, leaving: false, leave0: 0, size: cfg.size || 1, vis: null, band: null });
   const rows = trackRows(), idx = rows.indexOf(row);
   el.querySelector(".tv-prev").disabled = idx <= 0;
@@ -1008,10 +1010,12 @@ async function startTrack(row) {
   const fallback = [title, "XANAX TBILISI", "2022"];
   fetch(`https://soundcloud.com/oembed?format=json&url=${encodeURIComponent(cfg.sc)}`)
     .then((r) => r.json())
-    .then((j) => {
-      if (tv.token !== token) return;
+    .then(async (j) => {
       const text = (j.description || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-      buildLyrics(text.length ? text : fallback);
+      // word times from tools/align_lyrics.py, used only while the lyrics are still the same text
+      const sync = (await lyricSync)[title];
+      if (tv.token !== token) return;
+      buildLyrics(text.length ? text : fallback, sync && sync.text.join("\n") === text.join("\n") ? sync.words : null);
     })
     .catch(() => tv.token === token && buildLyrics(fallback));
 }
@@ -1047,15 +1051,28 @@ function bindWidget(token) {
   });
 }
 
-function buildLyrics(lines) {
-  // a long line is broken into short ones on its own side, so it does not reach into the other side's text
-  tv.lyr.innerHTML = lines.flatMap((l, i) => breakLine(l, isMobile() ? 22 : 30).map((part) =>
-    `<p class="${i % 2 ? "R" : "L"}">${[...part].map((c) => `<span>${esc(c)}</span>`).join("")}</p>`)).join("");
+function buildLyrics(lines, words) {
+  // a long line is broken into short ones on its own side, so it does not reach into the other side's text.
+  // With word times every letter knows its word (data-w), and every shown line starts when its
+  // first word is sung
+  tv.words = words ? words.flat() : null;
+  const starts = [];
+  let wi = 0;
+  tv.lyr.innerHTML = lines.flatMap((l, i) => breakLine(l, isMobile() ? 22 : 30).map((part) => {
+    if (tv.words) starts.push(tv.words[wi][0]);
+    const html = part.split(" ").map((w) => {
+      const word = [...w].map((c) => `<span${tv.words ? ` data-w="${wi}"` : ""}>${esc(c)}</span>`).join("");
+      wi++;
+      return word;
+    }).join("<span> </span>");
+    return `<p class="${i % 2 ? "R" : "L"}">${html}</p>`;
+  })).join("");
+  if (tv.words && !tv.times) tv.times = starts;
   const lh = isMobile() ? 12 : 14, y = { L: 0, R: lh * 0.5 };
   tv.lines = [...tv.lyr.querySelectorAll("p")].map((p) => {
     const side = p.classList.contains("L") ? "L" : "R";
     // letter offsets measured once in normal flow, then every letter is placed by hand
-    const chars = [...p.children].map((el) => ({ el, x: el.offsetLeft, w: el.offsetWidth }));
+    const chars = [...p.children].map((el) => ({ el, x: el.offsetLeft, w: el.offsetWidth, wi: el.dataset.w == null ? -1 : +el.dataset.w, lit: false }));
     const ln = { p, side, chars, w: p.offsetWidth, h: p.offsetHeight, y0: y[side], x: null };
     y[side] += ln.h + (isMobile() ? 6 : 8);
     return ln;
@@ -1213,6 +1230,12 @@ function tvTick(t) {
   // direction); KM: shape memory (each letter is drawn back towards its place in the
   // straight line) — together the tail sags but stays a little tense and springs back
   const G = 1300, steps = 2, KB = 0.05, KM = 0.004;
+  // the word being sung lights up red and goes stiff for its time (at least LIT s); when it
+  // turns white again it is just a rope of letters and sags like the rest
+  const LIT = 0.9, lit = (wi) => {
+    const w = wi >= 0 && tv.words ? tv.words[wi] : null;
+    return !!w && tv.pos >= w[0] && tv.pos < Math.max(w[1] + 0.15, w[0] + LIT);
+  };
   for (const ln of tv.lines) {
     const y = H / 2 + (tv.Ys - ln.y0);
     const out = Math.max(band[0] - (y + ln.h), y - band[1]);    // how far the line is outside the band
@@ -1223,6 +1246,7 @@ function tvTick(t) {
     }
     ln.p.style.visibility = "visible";
     ln.p.style.opacity = clamp(1 - out / fade);
+    for (const c of ln.chars) { const on = lit(c.wi); if (on !== c.lit) { c.lit = on; c.el.classList.toggle("on", on); } }
     const e = carEdges(frame, y + ln.h / 2);
     const L = ln.side === "L";
     let tx = L ? (e ? e[0] - gap - ln.w : cx - 8 - ln.w) : (e ? e[1] + gap : cx + 8);
@@ -1249,7 +1273,7 @@ function tvTick(t) {
       if (isRope(i)) return;
       if (c.rope) { c.sx = c.nx - P[i]; c.sy = c.ny - cyLine; c.vx = 0; c.vy = 0; }   // ease back from the tail
       c.rope = false;
-      const dy = Math.sin(P[i] * 0.03 + t * 3.2 + ln.y0 * 0.1) * tv.wob * 0.25;
+      const dy = c.lit ? 0 : Math.sin(P[i] * 0.03 + t * 3.2 + ln.y0 * 0.1) * tv.wob * 0.25;   // a lit word does not ripple
       if (c.sx === undefined) { c.sx = 0; c.sy = dy; c.vx = 0; c.vy = 0; }
       const kS = 120 + (i % 5) * 12, dmp = 13;
       for (let sub = 0; sub < 2; sub++) {
@@ -1311,7 +1335,9 @@ function tvTick(t) {
           const push = carPush(c.nx, c.ny, L);
           if (push) { c.nx = push[0]; c.ny = push[1]; }
           let ang = Math.atan2(c.ny - ay, c.nx - ax);
-          ang = prevAng + Math.max(-JOINT, Math.min(JOINT, wrap(ang - prevAng)));
+          // inside a lit word the joints lock: the word hangs as one stiff piece
+          const jl = c.lit && prevC && prevC.wi === c.wi ? 0 : JOINT;
+          ang = prevAng + Math.max(-jl, Math.min(jl, wrap(ang - prevAng)));
           ang = out + Math.max(-TOTAL, Math.min(TOTAL, wrap(ang - out)));
           c.nx = ax + Math.cos(ang) * rest; c.ny = ay + Math.sin(ang) * rest;
           if (c.ny > H + 40) c.ny = H + 40;
@@ -1334,7 +1360,7 @@ function tvTick(t) {
       last = { x: c.nx, y: c.ny };
     });
   }
-  tv.lines.forEach((ln, i) => ln.p.classList.toggle("cur", i === curIdx));
+  tv.lines.forEach((ln, i) => ln.p.classList.toggle("cur", i === curIdx && !tv.words));   // with word times the words light up instead
 }
 
 // the list in the HUD opens the same track views (switching in place when one is open)

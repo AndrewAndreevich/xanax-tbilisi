@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=37";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=38";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "37";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "38";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -70,7 +70,7 @@ const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 
 // ---------------------------------------------------------------- DOM fill
 $("#roles").innerHTML = [...ROLES, ...ROLES].map((r) => `<span>${r}</span>`).join("");
-$("#tracks").innerHTML = TRACKS.map(([t, d], i) => `<li><span>${String(i + 1).padStart(2, "0")} ${t}</span><span>${d}</span></li>`).join("");
+$("#tracks").innerHTML = TRACKS.map(([t, d], i) => `<li data-t="${t}" tabindex="0" role="button"><span>${String(i + 1).padStart(2, "0")} ${t}</span><span>${d}</span></li>`).join("");
 // tracks that open a track view: the source (SoundCloud widget, or the Bandcamp player for
 // the six tracks that are not on the band's SoundCloud) + the impostor that spins in it.
 // shape_* are abstract placeholders (tools/build_shapes.py) until each track gets its object.
@@ -459,7 +459,7 @@ function onScroll() {
   p1 = clamp(-r1.top / (r1.height - innerHeight));
   $("#progBar").style.setProperty("--p", p1);
   const ti = Math.min(TRACKS.length - 1, Math.floor(p1 * TRACKS.length));
-  if (ti !== lastTrack) { trackEls[lastTrack]?.classList.remove("on"); trackEls[ti].classList.add("on"); lastTrack = ti; glitchT = 0.35; }
+  if (ti !== lastTrack) { lastTrack = ti; glitchT = 0.35; }   // the figure glitches as the page moves on
 
   // turn until slide 2 has fully covered the figure
   const cover = s2.offsetTop;                                  // scrollY at which slide 2 fills the screen
@@ -800,8 +800,7 @@ function holdCentre(el, opening) {
   });
 }
 
-// switching: going straight on to another track — the site track stays paused
-async function closeTrack(switching = false) {
+async function closeTrack() {
   if (!tv.el || tv.leaving) return;
   tv.leaving = true;
   const { el, row } = tv;
@@ -810,8 +809,9 @@ async function closeTrack(switching = false) {
   // the lyrics fade with it — only then does the stage fold away
   tv.leave0 = performance.now();
   await new Promise((r) => setTimeout(r, 1300));
-  tv.el = null; tv.leaving = false; tv.leave0 = 0;
+  tv.el = null; tv.token = null; tv.leaving = false; tv.leave0 = 0;
   ext = null;
+  markTrack(null);
   setPlayerTitle(null);
   plTime.textContent = `${mmss(audio.currentTime)} / ${mmss(audio.duration)}`;
   $("#plBar").style.setProperty("--t", audio.duration ? audio.currentTime / audio.duration : 0);
@@ -822,7 +822,7 @@ async function closeTrack(switching = false) {
   await holdCentre(el, false);
   el.remove();
   $("#s3").classList.remove("tv-room");
-  if (tv.resume && !switching) { userPaused = false; play(true).then(syncUI); }
+  if (tv.resume) { userPaused = false; play(true).then(syncUI); }
 }
 
 // track order for PREV / NEXT and autoplay: the album order, stopping at both ends
@@ -837,34 +837,28 @@ function trackEnded() {
   if (ext) { ext.paused = true; syncUI(); }
   if (autoNext) stepTrack(1);
 }
+// the track that is open, marked in the tracks slide and in the HUD list
+function markTrack(title) {
+  document.querySelectorAll("#exitTracks .tr.on").forEach((r) => r.classList.remove("on"));
+  trackEls.forEach((li) => li.classList.toggle("on", li.dataset.t === title));
+  if (title) document.querySelector(`#exitTracks .tr[data-t="${CSS.escape(title)}"]`)?.classList.add("on");
+}
 
 async function openTrack(row) {
-  const title = row.dataset.t, cfg = PLAYABLE[title];
-  if (tv.busy || (tv.el && tv.row === row)) return;
+  if (tv.busy || tv.leaving || (tv.el && tv.row === row)) return;
+  if (tv.el) return switchTrack(row);
   tv.busy = true;
-  const switching = !!tv.el, wasResume = tv.resume;
-  if (switching) await closeTrack(true);
   const el = document.createElement("div");
   el.className = "tv";
   el.innerHTML = `<div class="tv-bar"><button class="pl-btn tv-back" type="button">&#9664; BACK</button>
-    <span class="tv-title">${title}</span>
+    <span class="tv-title"></span>
     <span class="tv-nav"><button class="pl-btn tv-prev" type="button" aria-label="previous track">&#9664;&#9664;</button><button class="pl-btn tv-auto" type="button"></button><button class="pl-btn tv-next" type="button" aria-label="next track">&#9654;&#9654;</button></span>
-    ${cfg.bc ? `<iframe class="bc" title="${title} on Bandcamp"
-      src="https://bandcamp.com/EmbeddedPlayer/album=${BC_ALBUM}/size=small/bgcol=000000/linkcol=ffffff/track=${cfg.bc}/transparent=true/"></iframe>` : ""}
     </div>
-    <canvas></canvas><div class="tv-lyrics"></div>
-    ${cfg.sc ? `<iframe allow="autoplay" title="${title} on SoundCloud" tabindex="-1"
-      src="https://w.soundcloud.com/player/?url=${encodeURIComponent(cfg.sc)}&auto_play=true&show_user=false&show_artwork=false&visual=false"></iframe>` : ""}`;
+    <canvas></canvas><div class="tv-lyrics"></div>`;
   row.after(el);
-  row.classList.add("on");
-  Object.assign(tv, { el, row, cv: el.querySelector("canvas"), lyr: el.querySelector(".tv-lyrics"), lines: [], progress: 0, pos: 0, dur: 0, widget: null, img: null,
-    title, times: cfg.times || savedTimes(title), syncing: SYNC, tapTimes: [], appear0: 0, peaks: null,
-    scrubbing: false, Ys: null, prevYs: null, wob: 0, lastT: 0, leaving: false, leave0: 0, size: cfg.size || 1 });
+  Object.assign(tv, { el, cv: el.querySelector("canvas"), lyr: el.querySelector(".tv-lyrics") });
   tv.ctx = tv.cv.getContext("2d");
   el.querySelector(".tv-back").addEventListener("click", () => closeTrack());
-  const rows = trackRows(), idx = rows.indexOf(row);
-  el.querySelector(".tv-prev").disabled = idx <= 0;
-  el.querySelector(".tv-next").disabled = idx >= rows.length - 1;
   el.querySelector(".tv-prev").addEventListener("click", () => stepTrack(-1));
   el.querySelector(".tv-next").addEventListener("click", () => stepTrack(1));
   const autoBtn = el.querySelector(".tv-auto");
@@ -874,17 +868,6 @@ async function openTrack(row) {
     autoNext = !autoNext; showAuto();
     try { localStorage.setItem("xt-auto", autoNext ? "1" : "0"); } catch {}
   });
-
-  // one player: the site track steps aside, the HUD now drives this one
-  tv.resume = switching ? wasResume : !audio.paused;
-  if (!audio.paused) audio.pause();
-  ext = cfg.bc ? bcClock(title) : { paused: true, play() { tv.widget?.play(); }, pause() { tv.widget?.pause(); },
-    seek(k) { tv.widget?.seekTo(k * tv.dur * 1000); }, volume(v) { tv.widget?.setVolume(v * 100); } };
-  setPlayerTitle(title, "XANAX TBILISI");
-  plTime.textContent = "00:00 / 00:00";
-  $("#plBar").style.setProperty("--t", 0);
-  syncUI();
-
   if (SYNC) {
     const box = document.createElement("div");
     box.className = "tv-sync";
@@ -909,7 +892,10 @@ async function openTrack(row) {
     el.addEventListener("pointerup", end);
     el.addEventListener("pointercancel", end);
   }
-  const assets = Promise.all([loadImpostor(cfg.impostor), cfg.sc ? loadScApi().catch(() => null) : null]);
+  // one player: the site track steps aside, the HUD now drives the open track
+  tv.resume = !audio.paused;
+  if (!audio.paused) audio.pause();
+  setupTrack(row);
 
   // 1. bring the line under the track to the middle of the screen,
   // 2. open the stage from that line to the full screen, keeping it centred,
@@ -923,41 +909,95 @@ async function openTrack(row) {
   $("#s3").classList.remove("tv-room");
   tv.appear0 = performance.now();
   tv.busy = false;
+  startTrack(row);
+}
 
-  const [[meta, im]] = await assets;
-  if (tv.el !== el) return;
+// next / previous / autoplay while the stage is open: it stays open — only the object drives
+// off, the stage moves under the new row (the screen does not move) and the next object
+// drives in with its own sound and lyrics
+async function switchTrack(row) {
+  tv.busy = true;
+  try { tv.widget && tv.widget.pause(); } catch {}
+  if (ext && ext.bc) ext.pause();
+  tv.token = null;                                          // the old track's widget events stop counting
+  tv.leave0 = performance.now();
+  await new Promise((r) => setTimeout(r, 1300));
+  const el = tv.el, before = el.getBoundingClientRect().top;
+  row.after(el);
+  scrollTo({ top: scrollY + el.getBoundingClientRect().top - before, behavior: "instant" });
+  setupTrack(row);
+  tv.busy = false;
+  startTrack(row);
+}
+
+// the track's own parts of the stage: title, buttons, players, lyrics, the HUD player
+function setupTrack(row) {
+  const el = tv.el, title = row.dataset.t, cfg = PLAYABLE[title];
+  el.querySelectorAll("iframe").forEach((f) => f.remove());
+  el.querySelector(".tv-title").textContent = title;
+  if (cfg.bc) el.querySelector(".tv-bar").insertAdjacentHTML("beforeend", `<iframe class="bc" title="${title} on Bandcamp"
+    src="https://bandcamp.com/EmbeddedPlayer/album=${BC_ALBUM}/size=small/bgcol=000000/linkcol=ffffff/track=${cfg.bc}/transparent=true/"></iframe>`);
+  if (cfg.sc) el.insertAdjacentHTML("beforeend", `<iframe class="sc" allow="autoplay" title="${title} on SoundCloud" tabindex="-1"
+    src="https://w.soundcloud.com/player/?url=${encodeURIComponent(cfg.sc)}&auto_play=true&show_user=false&show_artwork=false&visual=false"></iframe>`);
+  tv.lyr.innerHTML = "";
+  tv.ctx.setTransform(1, 0, 0, 1, 0, 0);
+  tv.ctx.clearRect(0, 0, tv.cv.width, tv.cv.height);
+  markTrack(title);
+  Object.assign(tv, { row, token: {}, lines: [], streamH: 0, progress: 0, pos: 0, dur: 0, widget: null, img: null, meta: null,
+    title, times: cfg.times || savedTimes(title), syncing: SYNC, tapTimes: [], appear0: 0, peaks: null,
+    scrubbing: false, Ys: null, prevYs: null, wob: 0, lastT: 0, leaving: false, leave0: 0, size: cfg.size || 1 });
+  const rows = trackRows(), idx = rows.indexOf(row);
+  el.querySelector(".tv-prev").disabled = idx <= 0;
+  el.querySelector(".tv-next").disabled = idx >= rows.length - 1;
+  ext = cfg.bc ? bcClock(title) : { paused: true, play() { tv.widget?.play(); }, pause() { tv.widget?.pause(); },
+    seek(k) { tv.widget?.seekTo(k * tv.dur * 1000); }, volume(v) { tv.widget?.setVolume(v * 100); } };
+  setPlayerTitle(title, "XANAX TBILISI");
+  plTime.textContent = "00:00 / 00:00";
+  $("#plBar").style.setProperty("--t", 0);
+  syncUI();
+  loadImpostor(cfg.impostor);                               // start fetching while the stage opens / the old one leaves
+  if (cfg.sc) loadScApi().catch(() => null);
+}
+
+// once the object is loaded: it drives in, the lyrics and the SoundCloud widget start
+async function startTrack(row) {
+  const token = tv.token, title = row.dataset.t, cfg = PLAYABLE[title];
+  const [[meta, im]] = await Promise.all([loadImpostor(cfg.impostor), cfg.sc ? loadScApi().catch(() => null) : null]);
+  if (tv.token !== token) return;
   tv.meta = meta; tv.img = im;
+  if (!tv.appear0) tv.appear0 = performance.now();
   // lyrics: the track's description on SoundCloud
   const fallback = [title, "XANAX TBILISI", "2022"];
   if (cfg.bc) { buildLyrics(fallback); return; }
   fetch(`https://soundcloud.com/oembed?format=json&url=${encodeURIComponent(cfg.sc)}`)
     .then((r) => r.json())
     .then((j) => {
-      if (tv.el !== el) return;
+      if (tv.token !== token) return;
       const text = (j.description || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
       buildLyrics(text.length ? text : fallback);
     })
-    .catch(() => tv.el === el && buildLyrics(fallback));
+    .catch(() => tv.token === token && buildLyrics(fallback));
   if (window.SC) {
-    const w = tv.widget = SC.Widget(el.querySelector("iframe"));
+    const w = tv.widget = SC.Widget(tv.el.querySelector("iframe.sc"));
     w.bind(SC.Widget.Events.READY, () => {
+      if (tv.token !== token) return;
       w.setVolume(vol * 100); w.play(); w.getDuration((d) => (tv.dur = d / 1000));
       w.getCurrentSound((snd) => {
         const u = snd && snd.waveform_url && snd.waveform_url.replace(/\.png$/, ".json");
         if (u) fetch(u).then((r) => r.json()).then((j) => {
           const m = Math.max(1, ...j.samples);
-          if (tv.el === el) tv.peaks = j.samples.map((v) => v / m);
+          if (tv.token === token) tv.peaks = j.samples.map((v) => v / m);
         }).catch(() => {});
       });
     });
-    w.bind(SC.Widget.Events.PLAY, () => { if (ext) { ext.paused = false; syncUI(); } });
-    w.bind(SC.Widget.Events.PAUSE, () => { if (ext) { ext.paused = true; syncUI(); } });
-    w.bind(SC.Widget.Events.FINISH, () => { if (tv.el === el) trackEnded(); });
+    w.bind(SC.Widget.Events.PLAY, () => { if (ext && tv.token === token) { ext.paused = false; syncUI(); } });
+    w.bind(SC.Widget.Events.PAUSE, () => { if (ext && tv.token === token) { ext.paused = true; syncUI(); } });
+    w.bind(SC.Widget.Events.FINISH, () => { if (tv.token === token) trackEnded(); });
     w.bind(SC.Widget.Events.PLAY_PROGRESS, (e) => {
-      if (tv.scrubbing) return;
+      if (tv.scrubbing || tv.token !== token) return;
       tv.progress = e.relativePosition;
       tv.pos = e.currentPosition / 1000;
-      if (ext && tv.el === el) {
+      if (ext) {
         plTime.textContent = `${mmss(tv.pos)} / ${mmss(tv.dur)}`;
         $("#plBar").style.setProperty("--t", tv.progress);
       }
@@ -1242,6 +1282,13 @@ function tvTick(t) {
   tv.lines.forEach((ln, i) => ln.p.classList.toggle("cur", i === curIdx));
 }
 
+// the list in the HUD opens the same track views (switching in place when one is open)
+function openByTitle(t) {
+  const row = document.querySelector(`#exitTracks .tr[data-t="${CSS.escape(t)}"]`);
+  if (row) openTrack(row);
+}
+$("#tracks").addEventListener("click", (e) => { const li = e.target.closest("li"); if (li) openByTitle(li.dataset.t); });
+$("#tracks").addEventListener("keydown", (e) => { const li = e.target.closest("li"); if (li && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openByTitle(li.dataset.t); } });
 $("#exitTracks").addEventListener("click", (e) => {
   const row = e.target.closest(".tr.playable");
   if (row) openTrack(row);

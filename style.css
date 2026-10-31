@@ -68,7 +68,8 @@ em { font-style: normal; color: var(--dim); }
 .tick-in span::before { content: "// "; color: var(--dim); }
 @keyframes tick { to { transform: translateX(-50%); } }
 #tracks { list-style: none; font-size: 9px; line-height: 1.55; order: 4; }
-#tracks li { display: flex; justify-content: space-between; gap: 10px; }
+#tracks li { display: flex; justify-content: space-between; gap: 10px; pointer-events: auto; cursor: pointer; }
+#tracks li:hover span:first-child { text-decoration: underline; }
 #tracks li.on { background: #fff; color: #000; }
 #tracks li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .total { order: 5; display: flex; justify-content: space-between; font-size: 9px; border-top: 1px solid rgba(255,255,255,.2); padding-top: 3px; }

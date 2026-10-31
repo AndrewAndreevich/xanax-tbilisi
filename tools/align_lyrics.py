@@ -2,8 +2,8 @@
 # every word it hears a start / end; those words are matched in order to the lyrics on
 # SoundCloud (the track description, as the site shows it), and lyric words Whisper missed get
 # times spread between their matched neighbours.
-# Writes assets/lyrics_sync.json: {title: {"text": [lines], "words": [[[start, end], ...] per line]}}
-#   python -I tools/align_lyrics.py AUDIO_DIR [title ...]
+#   python -I tools/align_lyrics.py transcribe AUDIO_DIR CACHE_DIR [title ...]   (Whisper, slow; cached)
+#   python -I tools/align_lyrics.py build CACHE_DIR                             -> assets/lyrics_sync.json
 # AUDIO_DIR holds <slug>.mp3 for each track (downloaded from the band's SoundCloud, not in the repo).
 import difflib, json, re, subprocess, sys, urllib.parse, urllib.request
 import numpy as np
@@ -35,11 +35,11 @@ def norm(w):
     return re.sub(r"[^a-z0-9]", "", w.lower().replace("’", "'"))
 
 
-def main():
-    audio = Path(sys.argv[1])
-    only = set(sys.argv[2:])
+def transcribe(audio, cache, only):
+    """Whisper's words with times for every track -> cache/<slug>.json (kept, so the layout can be
+    rebuilt without listening again)"""
+    import os, time
     # CUDA runtime from the nvidia-cublas-cu12 / nvidia-cudnn-cu12 wheels, if installed
-    import os
     try:
         import nvidia.cublas, nvidia.cudnn
         for m in (nvidia.cublas, nvidia.cudnn):
@@ -47,54 +47,127 @@ def main():
     except ImportError:
         pass
     from faster_whisper import WhisperModel
-    try:
-        model = WhisperModel("large-v3", device="cuda", compute_type="float16")
-    except Exception as e:
-        print("no cuda:", e); model = WhisperModel("medium", device="cpu", compute_type="int8")
-    data = json.loads(OUT.read_text(encoding="utf-8")) if OUT.exists() else {}
+    model = WhisperModel("large-v3", device="cuda", compute_type="float16")
+    cache.mkdir(parents=True, exist_ok=True)
     for title, slug in TRACKS.items():
-        if only and title not in only:
+        f = cache / f"{slug}.json"
+        if (only and title not in only) or f.exists():
             continue
         lines = lyrics(slug)
-        if not lines:
-            print(title, "no lyrics"); continue
-        words = [w for l in lines for w in l.split()]
+        t0 = time.time()
         segs, _ = model.transcribe(pcm(audio / f"{slug}.mp3"), language="en", word_timestamps=True,
-                                   initial_prompt=" ".join(lines)[:800], condition_on_previous_text=False,
+                                   initial_prompt=" ".join(lines)[:800] or None, condition_on_previous_text=False,
                                    vad_filter=False, beam_size=5)
-        heard = [(w.word.strip(), w.start, w.end) for s in segs for w in (s.words or [])]
-        a = [norm(w) for w in words]
-        b = [norm(w) for w, _, _ in heard]
-        times = [None] * len(words)
-        for blk in difflib.SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks():
-            for k in range(blk.size):
-                _, s, e = heard[blk.b + k]
-                times[blk.a + k] = [round(s, 2), round(e, 2)]
-        matched = sum(t is not None for t in times)
-        # missed words: spread between the matched neighbours (or 0.4 s apart at the ends)
-        known = [i for i, t in enumerate(times) if t]
-        for i in range(len(times)):
-            if times[i]:
-                continue
-            p = max([k for k in known if k < i], default=None)
-            n = min([k for k in known if k > i], default=None)
-            if p is not None and n is not None:
-                t0, t1 = times[p][1], times[n][0]
-                f = (i - p) / (n - p)
-                s = t0 + (t1 - t0) * f
-                times[i] = [round(s, 2), round(min(t1, s + (t1 - t0) / (n - p)), 2)]
-            elif p is not None:
-                s = times[p][1] + 0.4 * (i - p); times[i] = [round(s, 2), round(s + 0.35, 2)]
-            elif n is not None:
-                s = max(0, times[n][0] - 0.4 * (n - i)); times[i] = [round(s, 2), round(s + 0.35, 2)]
-            else:
-                times[i] = [0, 0]
-        per_line, k = [], 0
-        for l in lines:
-            n = len(l.split()); per_line.append(times[k:k + n]); k += n
-        data[title] = {"text": lines, "words": per_line, "matched": round(matched / len(words), 2)}
-        print(f"{title}: {matched}/{len(words)} words matched, heard {len(heard)}")
-        OUT.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        heard = [[w.word.strip(), round(w.start, 2), round(w.end, 2)] for s in segs for w in (s.words or [])]
+        f.write_text(json.dumps({"lyrics": lines, "heard": heard}, ensure_ascii=False), encoding="utf-8")
+        print(f"{title}: {len(heard)} words heard in {time.time() - t0:.0f} s", flush=True)
 
 
-main()
+def sung(lines, heard):
+    """The lyrics in the order they are sung: walking through what Whisper heard, each stretch is
+    matched to the next line of the text or to a line sung before (a chorus coming back). Lines
+    Whisper did not catch are kept in their place. Returns [(line index, [[start, end] per word])]."""
+    L = [[norm(w) for w in l.split()] for l in lines]
+    H = [norm(w) for w, _, _ in heard]
+
+    def fit(i, p):                       # how well line i matches the heard words from p on
+        n = len(L[i])
+        win = H[p:p + n + 3]
+        m = difflib.SequenceMatcher(None, L[i], win, autojunk=False)
+        pairs = [(blk.a + k, p + blk.b + k) for blk in m.get_matching_blocks() for k in range(blk.size)]
+        if not pairs or pairs[0][1] - p > 1:
+            return 0, pairs
+        return len(pairs) / n, pairs
+
+    out, nxt, p = [], 0, 0
+    while p < len(H):
+        best = (0, None, None)
+        for k in range(3):                                   # the next line (or one of the two after it)
+            i = nxt + k
+            if i < len(lines):
+                sc, pr = fit(i, p)
+                sc += 0.15 - 0.12 * k
+                if sc > best[0]:
+                    best = (sc, i, pr)
+        for i in sorted(set(j for j, _ in out)):            # a line sung before: a repeat
+            sc, pr = fit(i, p)
+            if sc >= 0.6 and sc > best[0]:
+                best = (sc, i, pr)
+        sc, i, pr = best
+        if i is None or sc < 0.55:
+            p += 1
+            continue
+        for j in range(nxt, i):                              # lines skipped over: not heard, keep them
+            out.append((j, [None] * len(L[j])))
+        times = [None] * len(L[i])
+        for wa, wb in pr:
+            times[wa] = [heard[wb][1], heard[wb][2]]
+        out.append((i, times))
+        nxt = max(nxt, i + 1)
+        p = pr[-1][1] + 1
+    for j in range(nxt, len(lines)):
+        out.append((j, [None] * len(L[j])))
+    # words without a time: spread between the nearest timed words around them
+    flat = [t for _, ts in out for t in ts]
+    known = [k for k, t in enumerate(flat) if t]
+    for k, t in enumerate(flat):
+        if t:
+            continue
+        pv = max([q for q in known if q < k], default=None)
+        nx = min([q for q in known if q > k], default=None)
+        if pv is not None and nx is not None:
+            a, b = flat[pv][1], flat[nx][0]
+            st = (b - a) / (nx - pv)
+            flat[k] = [round(a + st * (k - pv), 2), round(a + st * (k - pv + 1), 2)]
+        elif pv is not None:
+            s0 = flat[pv][1] + 0.4 * (k - pv)
+            flat[k] = [round(s0, 2), round(s0 + 0.35, 2)]
+        else:
+            s0 = max(0, flat[nx][0] - 0.4 * (nx - k)) if nx is not None else 0
+            flat[k] = [round(s0, 2), round(s0 + 0.35, 2)]
+    res, q = [], 0
+    for i, ts in out:
+        res.append((i, flat[q:q + len(ts)]))
+        q += len(ts)
+    return res
+
+
+def build(cache):
+    """lyrics_sync.json: for each track the lines as sung (choruses repeated in full), the stanza
+    each line belongs to (a new stanza where a chorus starts or ends, or after a pause) and the
+    time of every word. "src" is the SoundCloud text it was made from."""
+    data = {}
+    for title, slug in TRACKS.items():
+        f = cache / f"{slug}.json"
+        if not f.exists():
+            continue
+        d = json.loads(f.read_text(encoding="utf-8"))
+        lines, heard = d["lyrics"], d["heard"]
+        if not lines:
+            continue
+        seq = sung(lines, heard)
+        # a chorus line: the same words sung more than once (the text may also write it out twice)
+        key = lambda i: " ".join(norm(w) for w in lines[i].split())
+        count = {}
+        for i, _ in seq:
+            count[key(i)] = count.get(key(i), 0) + 1
+        chorus = lambda i: count[key(i)] > 1
+        stanza, st = [], 0
+        for k, (i, ts) in enumerate(seq):
+            if k:
+                pi, pts = seq[k - 1]
+                if chorus(i) != chorus(pi) or ts[0][0] - pts[-1][1] > 2.5:
+                    st += 1
+            stanza.append(st)
+        data[title] = {"src": lines, "lines": [lines[i] for i, _ in seq], "stanza": stanza,
+                       "words": [ts for _, ts in seq]}
+        print(f"{title}: {len(lines)} lines written, {len(seq)} sung, {st + 1} stanzas")
+    OUT.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+
+
+if __name__ == "__main__":
+    cmd, audio_or_cache = sys.argv[1], Path(sys.argv[2])
+    if cmd == "transcribe":
+        transcribe(audio_or_cache, Path(sys.argv[3]), set(sys.argv[4:]))
+    if cmd == "build":
+        build(audio_or_cache)

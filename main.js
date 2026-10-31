@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=51";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=52";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "51";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "52";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -1012,10 +1012,12 @@ async function startTrack(row) {
     .then((r) => r.json())
     .then(async (j) => {
       const text = (j.description || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-      // word times from tools/align_lyrics.py, used only while the lyrics are still the same text
+      // tools/align_lyrics.py: the lines as they are sung (choruses repeated in full, in stanzas)
+      // with the time of every word — used only while SoundCloud still has the same text
       const sync = (await lyricSync)[title];
       if (tv.token !== token) return;
-      buildLyrics(text.length ? text : fallback, sync && sync.text.join("\n") === text.join("\n") ? sync.words : null);
+      if (sync && sync.src.join("\n") === text.join("\n")) buildLyrics(sync.lines, sync.words, sync.stanza);
+      else buildLyrics(text.length ? text : fallback);
     })
     .catch(() => tv.token === token && buildLyrics(fallback));
 }
@@ -1051,26 +1053,36 @@ function bindWidget(token) {
   });
 }
 
-function buildLyrics(lines, words) {
+function buildLyrics(lines, words, stanza) {
   // a long line is broken into short ones on its own side, so it does not reach into the other side's text.
   // With word times every letter knows its word (data-w), and every shown line starts when its
   // first word is sung
   tv.words = words ? words.flat() : null;
   const starts = [];
-  let wi = 0;
-  tv.lyr.innerHTML = lines.flatMap((l, i) => breakLine(l, isMobile() ? 22 : 30).map((part) => {
+  let wi = 0, side = 0;
+  tv.lyr.innerHTML = lines.flatMap((l, i) => {
+    if (stanza && i && stanza[i] !== stanza[i - 1]) side = 0;     // every stanza starts on the left
+    const sd = side++ % 2 ? "R" : "L", st = stanza ? stanza[i] : 0;
+    return breakLine(l, isMobile() ? 22 : 30).map((part) => {
     if (tv.words) starts.push(tv.words[wi][0]);
     const html = part.split(" ").map((w) => {
       const word = [...w].map((c) => `<span${tv.words ? ` data-w="${wi}"` : ""}>${esc(c)}</span>`).join("");
       wi++;
       return word;
     }).join("<span> </span>");
-    return `<p class="${i % 2 ? "R" : "L"}">${html}</p>`;
-  })).join("");
+    return `<p class="${sd}" data-s="${st}">${html}</p>`;
+    });
+  }).join("");
   if (tv.words && !tv.times) tv.times = starts;
   const lh = isMobile() ? 12 : 14, y = { L: 0, R: lh * 0.5 };
+  let lastSt = "0";
   tv.lines = [...tv.lyr.querySelectorAll("p")].map((p) => {
     const side = p.classList.contains("L") ? "L" : "R";
+    if (p.dataset.s !== lastSt) {                              // a gap of two lines between stanzas
+      lastSt = p.dataset.s;
+      y.L = y.R = Math.max(y.L, y.R) + lh * 2;
+      y.R += lh * 0.5;
+    }
     // letter offsets measured once in normal flow, then every letter is placed by hand
     const chars = [...p.children].map((el) => ({ el, x: el.offsetLeft, w: el.offsetWidth, wi: el.dataset.w == null ? -1 : +el.dataset.w, lit: false }));
     const ln = { p, side, chars, w: p.offsetWidth, h: p.offsetHeight, y0: y[side], x: null };

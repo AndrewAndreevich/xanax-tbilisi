@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=43";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=44";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "43";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "44";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -768,6 +768,8 @@ const loadScApi = () => scApi || (scApi = new Promise((ok, err) => {
   sc.onload = () => ok(window.SC); sc.onerror = err;
   document.head.appendChild(sc);
 }));
+// fetched while the page is idle, so a click on a track only waits for the widget itself
+setTimeout(() => loadScApi().catch(() => { scApi = null; }), 3000);
 const impostors = {};
 const loadImpostor = (name) => impostors[name] || (impostors[name] = Promise.all([
   fetch(asset(`assets/${name}.json`)).then((r) => r.json()),
@@ -890,7 +892,7 @@ async function openTrack(row) {
     });
     el.addEventListener("pointermove", (e) => {
       if (!drag || !ext) return;
-      scrubTo(drag.k + (e.clientY - drag.y) / (tv.streamH + tv.cv.clientHeight + 20));
+      scrubTo(drag.k + (e.clientY - drag.y) / (tv.streamH + (tv.band ? tv.band[1] - tv.band[0] : tv.cv.clientHeight)));
     });
     const end = () => { if (drag) { drag = null; scrubTo(tv.progress, true); scrub = null; } };
     el.addEventListener("pointerup", end);
@@ -946,7 +948,7 @@ function setupTrack(row) {
   markTrack(title);
   Object.assign(tv, { row, token: {}, lines: [], streamH: 0, progress: 0, pos: 0, dur: 0, widget: null, img: null, meta: null,
     title, times: cfg.times || savedTimes(title), syncing: SYNC, tapTimes: [], appear0: 0, peaks: null,
-    scrubbing: false, Ys: null, prevYs: null, wob: 0, lastT: 0, leaving: false, leave0: 0, size: cfg.size || 1 });
+    scrubbing: false, Ys: null, prevYs: null, wob: 0, lastT: 0, leaving: false, leave0: 0, size: cfg.size || 1, vis: null, band: null });
   const rows = trackRows(), idx = rows.indexOf(row);
   el.querySelector(".tv-prev").disabled = idx <= 0;
   el.querySelector(".tv-next").disabled = idx >= rows.length - 1;
@@ -957,16 +959,21 @@ function setupTrack(row) {
   $("#plBar").style.setProperty("--t", 0);
   syncUI();
   loadImpostor(cfg.impostor);                               // start fetching while the stage opens / the old one leaves
-  if (cfg.sc) loadScApi().catch(() => null);
+  const token = tv.token;
+  loadScApi().then(() => bindWidget(token)).catch(() => null);
 }
 
 // once the object is loaded: it drives in, the lyrics and the SoundCloud widget start
 async function startTrack(row) {
   const token = tv.token, title = row.dataset.t, cfg = PLAYABLE[title];
-  const [[meta, im]] = await Promise.all([loadImpostor(cfg.impostor), loadScApi().catch(() => null)]);
+  const [meta, im] = await loadImpostor(cfg.impostor);
   if (tv.token !== token) return;
   tv.meta = meta; tv.img = im;
+  // the rows the object really fills over its whole turn (the cell has empty margins)
+  const rows = meta.frames.flatMap((f) => f.profile.map((p, i) => (p ? i : -1))).filter((i) => i >= 0), nr = meta.frames[0].profile.length;
+  tv.vis = rows.length ? [Math.min(...rows) / nr, (Math.max(...rows) + 1) / nr] : [0, 1];
   if (!tv.appear0) tv.appear0 = performance.now();
+  if (ext && ext.paused) tv.widget?.play();                 // in case the widget was ready before it was bound
   // lyrics: the track's description on SoundCloud
   const fallback = [title, "XANAX TBILISI", "2022"];
   fetch(`https://soundcloud.com/oembed?format=json&url=${encodeURIComponent(cfg.sc)}`)
@@ -977,32 +984,37 @@ async function startTrack(row) {
       buildLyrics(text.length ? text : fallback);
     })
     .catch(() => tv.token === token && buildLyrics(fallback));
-  if (window.SC) {
-    const w = tv.widget = SC.Widget(tv.el.querySelector("iframe.sc"));
-    w.bind(SC.Widget.Events.READY, () => {
-      if (tv.token !== token) return;
-      w.setVolume(vol * 100); w.play(); w.getDuration((d) => (tv.dur = d / 1000));
-      w.getCurrentSound((snd) => {
-        const u = snd && snd.waveform_url && snd.waveform_url.replace(/\.png$/, ".json");
-        if (u) fetch(u).then((r) => r.json()).then((j) => {
-          const m = Math.max(1, ...j.samples);
-          if (tv.token === token) tv.peaks = j.samples.map((v) => v / m);
-        }).catch(() => {});
-      });
+}
+
+// the SoundCloud widget is bound as soon as its iframe exists, so its READY is never missed
+// (it used to be bound only after the object had loaded — by then the widget was often
+// ready already and the track never started); it plays the moment it is ready
+function bindWidget(token) {
+  if (tv.token !== token || !window.SC) return;
+  const w = tv.widget = SC.Widget(tv.el.querySelector("iframe.sc"));
+  w.bind(SC.Widget.Events.READY, () => {
+    if (tv.token !== token) return;
+    w.setVolume(vol * 100); w.play(); w.getDuration((d) => (tv.dur = d / 1000));
+    w.getCurrentSound((snd) => {
+      const u = snd && snd.waveform_url && snd.waveform_url.replace(/\.png$/, ".json");
+      if (u) fetch(u).then((r) => r.json()).then((j) => {
+        const m = Math.max(1, ...j.samples);
+        if (tv.token === token) tv.peaks = j.samples.map((v) => v / m);
+      }).catch(() => {});
     });
-    w.bind(SC.Widget.Events.PLAY, () => { if (ext && tv.token === token) { ext.paused = false; syncUI(); } });
-    w.bind(SC.Widget.Events.PAUSE, () => { if (ext && tv.token === token) { ext.paused = true; syncUI(); } });
-    w.bind(SC.Widget.Events.FINISH, () => { if (tv.token === token) trackEnded(); });
-    w.bind(SC.Widget.Events.PLAY_PROGRESS, (e) => {
-      if (tv.scrubbing || tv.token !== token) return;
-      tv.progress = e.relativePosition;
-      tv.pos = e.currentPosition / 1000;
-      if (ext) {
-        plTime.textContent = `${mmss(tv.pos)} / ${mmss(tv.dur)}`;
-        $("#plBar").style.setProperty("--t", tv.progress);
-      }
-    });
-  }
+  });
+  w.bind(SC.Widget.Events.PLAY, () => { if (ext && tv.token === token) { ext.paused = false; syncUI(); } });
+  w.bind(SC.Widget.Events.PAUSE, () => { if (ext && tv.token === token) { ext.paused = true; syncUI(); } });
+  w.bind(SC.Widget.Events.FINISH, () => { if (tv.token === token) trackEnded(); });
+  w.bind(SC.Widget.Events.PLAY_PROGRESS, (e) => {
+    if (tv.scrubbing || tv.token !== token) return;
+    tv.progress = e.relativePosition;
+    tv.pos = e.currentPosition / 1000;
+    if (ext) {
+      plTime.textContent = `${mmss(tv.pos)} / ${mmss(tv.dur)}`;
+      $("#plBar").style.setProperty("--t", tv.progress);
+    }
+  });
 }
 
 function buildLyrics(lines) {
@@ -1130,9 +1142,14 @@ function tvTick(t) {
   ctx.drawImage(im, c * meta.cellW, r * meta.cellH, meta.cellW, meta.cellH, tv.rect.x, tv.rect.y, cw, ch);
   ctx.globalAlpha = 1;
   tv.lyr.style.opacity = clamp((k - 0.5) * 2);
-  // lyrics fall from the top through the stage. With line times the current line sits at
+  // lyrics fall through the band around the object. With line times the current line sits at
   // the car's middle while it is sung; without them they spread over the track (no highlight).
   // Y: how far the stream has moved; a line sits at H/2 + (Y - its y0).
+  // the lyrics live in a band around the object (where it stands once it has arrived): a line
+  // fades in just above it and out just below it, instead of crawling in from the screen's top
+  const ch0 = cw0 * meta.cellH / meta.cellW, fade = H * 0.07;
+  const vis = tv.vis || [0, 1], top0 = H * 0.5 - ch0 / 2;
+  const band = tv.band = [Math.max(fade, top0 + vis[0] * ch0 - H * 0.05), Math.min(H - fade, top0 + vis[1] * ch0 + H * 0.05)];
   let Y, curIdx = -1;
   const times = tv.times && tv.times.length ? tv.times : null;
   if (times) {
@@ -1147,7 +1164,8 @@ function tvTick(t) {
     const y0 = a ? a.y0 + ((b ? b.y0 : a.y0) - a.y0) * f : 0;
     Y = y0 - lead * H * 0.4;
   } else {
-    Y = -H / 2 - 20 + (tv.progress || 0) * (tv.streamH + H + 20);
+    // over the track the stream runs from the top of the band to its bottom
+    Y = band[0] - H / 2 + (tv.progress || 0) * (tv.streamH + band[1] - band[0]);
   }
   // the stream follows the track with a little lag; moving it (playing, scrubbing) feeds
   // a wobble that dies down — the text behaves like jelly, not like a ruler
@@ -1166,12 +1184,14 @@ function tvTick(t) {
   const G = 1300, steps = 2, KB = 0.05, KM = 0.004;
   for (const ln of tv.lines) {
     const y = H / 2 + (tv.Ys - ln.y0);
-    if (y < -40 || y > H + 20) {
+    const out = Math.max(band[0] - (y + ln.h), y - band[1]);    // how far the line is outside the band
+    if (out > fade) {
       ln.p.style.visibility = "hidden"; ln.x = null; ln.ax = ln.ay = null;
       for (const c of ln.chars) { c.sx = undefined; c.rope = false; }
       continue;
     }
     ln.p.style.visibility = "visible";
+    ln.p.style.opacity = clamp(1 - out / fade);
     const e = carEdges(frame, y + ln.h / 2);
     const L = ln.side === "L";
     let tx = L ? (e ? e[0] - gap - ln.w : cx - 8 - ln.w) : (e ? e[1] + gap : cx + 8);

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=34";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=36";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "34";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "36";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -641,18 +641,14 @@ function drawPills(dt) {
   tilt.x += (tilt.tx - tilt.x) * Math.min(1, dt * 4);
   tilt.y += (tilt.ty - tilt.y) * Math.min(1, dt * 4);
   pillDX += (2 + tilt.x * 14) * dt * dpr;               // a very slow drift, gently steered by tilt
-  pillDY += (-3 + tilt.y * 14) * dt * dpr;
+  pillDY += (5 + tilt.y * 14) * dt * dpr;
   pillCtx.clearRect(0, 0, w, h);
   const pw = 96 * dpr, ph = pw * pillImg.height / pillImg.width;
   const sx = 150 * dpr, sy = 74 * dpr;                  // grid step
   const ox = ((pillDX % sx) + sx) % sx, oy = ((pillDY % sy) + sy) % sy;
-  // the canvas starts 40vh above slide 3: paper down to 48vh, black from 115vh; the bars are
-  // stronger on the paper and fade to the faint pattern over the black
-  const vh = innerHeight * dpr / 100;
   for (let gy = -sy + oy, row = 0; gy < h + sy; gy += sy, row++) {
     const rr = Math.round((gy - pillDY) / sy);
     const stag = rr & 1 ? sx / 2 : 0;
-    pillCtx.globalAlpha = 0.3 + 0.5 * (1 - clamp((gy - 48 * vh) / (67 * vh)));
     for (let gx = -sx + ox + stag; gx < w + sx; gx += sx) {
       pillCtx.save();
       pillCtx.translate(gx, gy);
@@ -661,7 +657,54 @@ function drawPills(dt) {
       pillCtx.restore();
     }
   }
-  pillCtx.globalAlpha = 1;
+}
+
+// the cloud band at the top of slide 3: the paper of slide 2 billows down into the black,
+// dithered to paper / two greys like the rest of the site, drifting slowly sideways.
+// Drawn small (one cell = CLOUD_PX css px) and scaled up pixelated.
+const cloudCv = $("#clouds"), cloudCtx = cloudCv.getContext("2d");
+const CLOUD_PX = 3;
+let cloudImg = null, cloudT = -1;
+const CLOUD_TONES = [null, [70, 70, 70], [176, 176, 176], [242, 242, 242]];
+// puffs: round lobes along the seam — one row bulging up over the torso, one hanging down into
+// the black — on a solid core over the seam line itself; a grey dithered rim all round
+const PUFFS = [];
+for (let i = 0; i < 20; i++) PUFFS.push({ row: 0, k: (i + 0.6 * hash(i, 6)) / 20, r: 0.13 + 0.1 * hash(i, 1), y: -0.02 + 0.04 * hash(i, 2) });
+for (let i = 0; i < 16; i++) PUFFS.push({ row: 1, k: (i + 0.8 * hash(i, 5)) / 16, r: 0.13 + 0.11 * hash(i, 3), y: 0.05 + 0.06 * hash(i, 4) });
+function drawClouds(t) {
+  const W = Math.ceil(cloudCv.clientWidth / CLOUD_PX), H = Math.ceil(cloudCv.clientHeight / CLOUD_PX);
+  if (!W || !H || t - cloudT < 1 / 24) return;          // 24 fps is plenty for a slow drift
+  cloudT = t;
+  if (cloudCv.width !== W || cloudCv.height !== H) { cloudCv.width = W; cloudCv.height = H; cloudImg = cloudCtx.createImageData(W, H); }
+  const d = cloudImg.data;
+  // the seam line (slide 3's top) inside the canvas: --up over --up + --down
+  const cs = getComputedStyle(cloudCv.parentElement);
+  const up = parseFloat(cs.getPropertyValue("--up")), down = parseFloat(cs.getPropertyValue("--down"));
+  const mid = H * up / (up + down);
+  // puff circles in cells for this frame; spacing follows the height, so phones get round lobes too
+  const span = Math.max(W + H, H * 4.5), circ = [];
+  for (const p of PUFFS) {
+    const r = p.r * H, cx0 = p.k * span + t * (p.row ? 1.6 : 0.9);
+    const cx = ((cx0 % span) + span) % span;
+    for (const off of [-span, 0, span]) if (cx + off + r > 0 && cx + off - r < W) circ.push([cx + off, mid + p.y * H, r]);
+  }
+  const core = H * 0.07;
+  for (let x = 0; x < W; x++) {
+    const col = circ.filter((c) => Math.abs(c[0] - x) < c[2]);
+    for (let y = 0; y < H; y++) {
+      // s: how deep inside the cloud, in parts of a puff's radius
+      let s = (core - Math.abs(y - mid)) / (H * 0.12);
+      for (const [cx, cy, r] of col) {
+        const v = (r - Math.hypot(x - cx, y - cy)) / r;
+        if (v > s) s = v;
+      }
+      const f = clamp((s + 0.05) / 0.4);
+      const lv = f >= 1 ? 3 : Math.min(3, Math.floor(f * 3 + BAYER[(y % 4) * 4 + (x % 4)]));
+      const i = (y * W + x) * 4, c = CLOUD_TONES[lv];
+      if (c) { d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255; } else d[i + 3] = 0;
+    }
+  }
+  cloudCtx.putImageData(cloudImg, 0, 0);
 }
 function sizePills() {
   const r = pillCv.getBoundingClientRect(), dpr = Math.min(devicePixelRatio, 2);
@@ -1199,6 +1242,8 @@ function frame() {
   // Xanax bars on slide 3, only while it is on screen
   const pr = pillCv.getBoundingClientRect();
   if (pr.bottom > 0 && pr.top < innerHeight) drawPills(dt);
+  const cr = cloudCv.getBoundingClientRect();
+  if (cr.bottom > 0 && cr.top < innerHeight) drawClouds(t);
   // fire on the slide-2 edge, only while it is on screen
   const fr = fireCv.getBoundingClientRect();
   if (edgeFire && fr.bottom > 0 && fr.top < innerHeight) edgeFire.render(t);

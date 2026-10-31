@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=31";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=32";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "31";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "32";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -71,8 +71,27 @@ const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 // ---------------------------------------------------------------- DOM fill
 $("#roles").innerHTML = [...ROLES, ...ROLES].map((r) => `<span>${r}</span>`).join("");
 $("#tracks").innerHTML = TRACKS.map(([t, d], i) => `<li><span>${String(i + 1).padStart(2, "0")} ${t}</span><span>${d}</span></li>`).join("");
-// tracks that open a track view: SoundCloud source + the impostor that spins in it
+// tracks that open a track view: the source (SoundCloud widget, or the Bandcamp player for
+// the six tracks that are not on the band's SoundCloud) + the impostor that spins in it.
+// shape_* are abstract placeholders (tools/build_shapes.py) until each track gets its object.
+const scUrl = (slug) => `https://soundcloud.com/xanaxtbilisi/${slug}`;
+const BC_ALBUM = 2423891338;
 const PLAYABLE = {
+  "EUROORGASM": { sc: scUrl("euroorgasm"), impostor: "shape_star", size: 0.8 },
+  "RADIO KABUL": { sc: scUrl("radio-kabul"), impostor: "shape_rings", size: 0.9 },
+  "VLADIMIR PUTIN IS DEAD": { sc: scUrl("putin-is-dead"), impostor: "shape_cross", size: 0.8 },
+  "CHINA GARDEN": { bc: 3206999393, impostor: "shape_hourglass", size: 0.8 },
+  "NATURAL DEMOCRAT": { sc: scUrl("natural-democrat"), impostor: "shape_holes", size: 0.8 },
+  "DYING SWAN": { sc: scUrl("the-dying-swan"), impostor: "shape_twist", size: 0.8 },
+  "RUSSIANS GO HOME": { sc: scUrl("russians-go-home"), impostor: "shape_cone", size: 0.8 },
+  "S. L. O. N.": { sc: scUrl("slon"), impostor: "shape_menger", size: 0.8 },
+  "MORDOR CALLING": { bc: 3785303274, impostor: "shape_octa", size: 0.8 },
+  "OCCUPAN VACATION": { bc: 3649433828, impostor: "shape_torus", size: 0.8 },
+  "300 ARAGVELI": { bc: 212151304, impostor: "shape_tetra", size: 0.8 },
+  "XNX TBS": { sc: scUrl("xnx-tbs"), impostor: "shape_bar", size: 0.8 },
+  "CRYPTO ACAB": { sc: scUrl("crypto-acab"), impostor: "shape_gem", size: 0.9 },
+  "COMRADE IN TRAGEDY": { bc: 2240650391, impostor: "shape_links", size: 0.8 },
+  "RADIO PYONGYANG": { bc: 3679454795, impostor: "shape_helix", size: 0.8 },
   // times: when each lyric line starts (s); record them with ?sync on the site
   "STALIN MOUSTACHE": { sc: "https://soundcloud.com/xanaxtbilisi/stalin-moustache", impostor: "prius", times: null },
   // only the acoustic version is on the band's SoundCloud
@@ -320,6 +339,40 @@ function flowText(frame) {
     ln.x = ln.x == null ? tx : ln.x + (tx - ln.x) * 0.3;
     ln.el.style.transform = `translate3d(${ln.x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
   }
+}
+
+// ---------------------------------------------------------------- HUD corner: small Arseny, the same ring
+// The figure from slide 1 in the top-left box, turning on its own, dithered to the HUD's tones.
+const miniCv = $("#miniFig"), miniCtx = miniCv.getContext("2d");
+let miniImg = null, miniFrame = -1;
+const miniCache = new Map();
+function drawMini(t) {
+  if (!miniImg || !BODY || !miniCv.clientWidth) return;
+  const n = BODY.frames.length, f = Math.floor(t * n / 9.6) % n;
+  const W = miniCv.clientWidth, H = miniCv.clientHeight;
+  if (miniCv.width !== W || miniCv.height !== H) { miniCv.width = W; miniCv.height = H; miniFrame = -1; miniCache.clear(); }
+  if (f === miniFrame) return;
+  miniFrame = f;
+  if (!miniCache.has(f)) {
+    const h = H - 6, w = Math.round(h * BODY.cellW / BODY.cellH);
+    const off = document.createElement("canvas");
+    off.width = w; off.height = h;
+    const o = off.getContext("2d", { willReadFrequently: true });
+    o.drawImage(miniImg, (f % BODY.cols) * BODY.cellW, Math.floor(f / BODY.cols) * BODY.cellH, BODY.cellW, BODY.cellH, 0, 0, w, h);
+    const im = o.getImageData(0, 0, w, h), d = im.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const x = (i / 4) % w, y = Math.floor(i / 4 / w);
+      const l = (d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11) / 255;
+      const v = l * 1.5 + BAYER[(y % 4) * 4 + (x % 4)] - 0.5;       // brightened: it sits on black
+      d[i] = d[i + 1] = d[i + 2] = v > 0.75 ? 245 : v > 0.3 ? 130 : 40;
+      d[i + 3] = d[i + 3] > 110 ? 255 : 0;
+    }
+    o.putImageData(im, 0, 0);
+    miniCache.set(f, off);
+  }
+  const fr = miniCache.get(f);
+  miniCtx.clearRect(0, 0, W, H);
+  miniCtx.drawImage(fr, Math.round((W - fr.width) / 2), Math.round((H - fr.height) / 2));
 }
 
 // ---------------------------------------------------------------- slide-2 head: bust impostor, dithered to ink
@@ -684,10 +737,13 @@ async function openTrack(row) {
   const el = document.createElement("div");
   el.className = "tv";
   el.innerHTML = `<div class="tv-bar"><button class="pl-btn tv-back" type="button">&#9664; BACK</button>
-    <span class="tv-title">${title}</span></div>
+    <span class="tv-title">${title}</span>
+    ${cfg.bc ? `<iframe class="bc" title="${title} on Bandcamp"
+      src="https://bandcamp.com/EmbeddedPlayer/album=${BC_ALBUM}/size=small/bgcol=000000/linkcol=ffffff/track=${cfg.bc}/transparent=true/"></iframe>` : ""}
+    </div>
     <canvas></canvas><div class="tv-lyrics"></div>
-    <iframe allow="autoplay" title="${title} on SoundCloud" tabindex="-1"
-      src="https://w.soundcloud.com/player/?url=${encodeURIComponent(cfg.sc)}&auto_play=true&show_user=false&show_artwork=false&visual=false"></iframe>`;
+    ${cfg.sc ? `<iframe allow="autoplay" title="${title} on SoundCloud" tabindex="-1"
+      src="https://w.soundcloud.com/player/?url=${encodeURIComponent(cfg.sc)}&auto_play=true&show_user=false&show_artwork=false&visual=false"></iframe>` : ""}`;
   row.after(el);
   row.classList.add("on");
   Object.assign(tv, { el, row, cv: el.querySelector("canvas"), lyr: el.querySelector(".tv-lyrics"), lines: [], progress: 0, pos: 0, dur: 0, widget: null, img: null,
@@ -699,7 +755,7 @@ async function openTrack(row) {
   // one player: the site track steps aside, the HUD now drives this one
   tv.resume = !audio.paused;
   if (tv.resume) audio.pause();
-  ext = { paused: true, play() { tv.widget?.play(); }, pause() { tv.widget?.pause(); },
+  ext = cfg.bc ? bcClock(title) : { paused: true, play() { tv.widget?.play(); }, pause() { tv.widget?.pause(); },
     seek(k) { tv.widget?.seekTo(k * tv.dur * 1000); }, volume(v) { tv.widget?.setVolume(v * 100); } };
   setPlayerTitle(title, "XANAX TBILISI");
   plTime.textContent = "00:00 / 00:00";
@@ -730,7 +786,7 @@ async function openTrack(row) {
     el.addEventListener("pointerup", end);
     el.addEventListener("pointercancel", end);
   }
-  const assets = Promise.all([loadImpostor(cfg.impostor), loadScApi().catch(() => null)]);
+  const assets = Promise.all([loadImpostor(cfg.impostor), cfg.sc ? loadScApi().catch(() => null) : null]);
 
   // 1. bring the line under the track to the middle of the screen,
   // 2. open the stage from that line to the full screen, keeping it centred,
@@ -750,6 +806,7 @@ async function openTrack(row) {
   tv.meta = meta; tv.img = im;
   // lyrics: the track's description on SoundCloud
   const fallback = [title, "XANAX TBILISI", "2022"];
+  if (cfg.bc) { buildLyrics(fallback); return; }
   fetch(`https://soundcloud.com/oembed?format=json&url=${encodeURIComponent(cfg.sc)}`)
     .then((r) => r.json())
     .then((j) => {
@@ -784,6 +841,32 @@ async function openTrack(row) {
     });
   }
 }
+
+// Bandcamp's embedded player has no API: the sound is started in its own small player,
+// and the HUD keeps a clock of the track's length so the lyrics and the waveform still move
+function bcClock(title) {
+  const [m, s] = TRACKS.find(([t]) => t === title)[1].split(":").map(Number);
+  tv.dur = m * 60 + s;
+  let at = 0, t0 = 0;                                       // position while paused / when the run started
+  const pos = () => (c.paused ? at : at + (performance.now() - t0) / 1000);
+  const c = { paused: true, bc: true,
+    play() { if (!c.paused) return; t0 = performance.now(); c.paused = false; syncUI(); },
+    pause() { if (c.paused) return; at = pos(); c.paused = true; syncUI(); },
+    seek(k) { at = k * tv.dur; t0 = performance.now(); },
+    volume() {},
+    tick() {
+      if (tv.scrubbing) return;
+      let p = pos();
+      if (p >= tv.dur) { at = 0; t0 = performance.now(); p = 0; }
+      tv.pos = p; tv.progress = p / tv.dur;
+      plTime.textContent = `${mmss(p)} / ${mmss(tv.dur)}`;
+    } };
+  return c;
+}
+// a click into the Bandcamp player takes the focus off the page: take it as its play / pause button
+addEventListener("blur", () => {
+  if (ext && ext.bc && document.activeElement?.classList.contains("bc")) { ext.paused ? ext.play() : ext.pause(); setTimeout(() => window.focus(), 0); }
+});
 
 function buildLyrics(lines) {
   tv.lyr.innerHTML = lines.map((l, i) =>
@@ -851,6 +934,7 @@ function carPush(x, y, fromLeft) {
 
 function tvTick(t) {
   if (!tv.el || !tv.img) return;
+  if (ext && ext.bc) ext.tick();
   const nowMs = performance.now();
   const dt = Math.min(0.05, Math.max(0.001, (nowMs - (tv.lastT || nowMs)) / 1000 || 0.016));
   tv.lastT = nowMs;
@@ -1063,6 +1147,7 @@ function frame() {
     flowText(a);
   }
   tvTick(t);
+  drawMini(t);
   // Xanax bars on slide 3, only while it is on screen
   const pr = pillCv.getBoundingClientRect();
   if (pr.bottom > 0 && pr.top < innerHeight) drawPills(dt);
@@ -1089,6 +1174,7 @@ Promise.all([
   tex.loadAsync(asset("assets/arseny_body.webp")).then((t) => { target += 35; return t; }),
   img(asset("assets/arseny_bust.webp")).then((i) => { target += 25; return i; }),
   img(asset("assets/xanax_bar.webp")).then((i) => (pillImg = i)),
+  img(asset("assets/arseny_body.webp")).then((i) => (miniImg = i)),
   document.fonts.ready,
 ]).then(([body, bustJ, atlas, bust]) => {
   BODY = body; bustMeta = bustJ; bustImg = bust;

@@ -44,11 +44,12 @@ em { font-style: normal; color: var(--dim); }
 /* ---------- HUD ---------- */
 #hud { position: fixed; inset: 0; z-index: 20; pointer-events: none; mix-blend-mode: difference; color: #fff; }
 #hud a, #hud .cta { pointer-events: auto; }
-.panel { position: absolute; top: 0; bottom: 30px; width: 292px; padding: 8px 10px; display: flex; flex-direction: column; gap: 10px; }
+.panel { position: absolute; top: 0; bottom: 62px; width: 292px; padding: 8px 10px; display: flex; flex-direction: column; gap: 10px; }
 .panel.left { left: 0; border-right: 1px dashed rgba(255,255,255,.12); }
 .panel.right { right: 0; border-left: 1px dashed rgba(255,255,255,.12); }
 .mini { height: 92px; display: grid; place-items: center; border: 1px dotted rgba(255,255,255,.25); }
-.mini svg { width: 14px; fill: #fff; }
+.mini { overflow: hidden; }
+.mini canvas { width: 100%; height: 90px; display: block; image-rendering: pixelated; }
 .row { display: flex; justify-content: space-between; gap: 8px; }
 .row .r { text-align: right; }
 .tag { border: 1px solid #fff; padding: 1px 6px; }
@@ -84,15 +85,16 @@ em { font-style: normal; color: var(--dim); }
 .pl-viz { height: 26px; display: flex; align-items: flex-end; gap: 2px; }
 .pl-viz i { flex: 1; height: 100%; background: #fff; transform-origin: bottom; transform: scaleY(.04); }
 /* progress as a waveform: red = played, white = still to come; click to seek */
-.pl-wave { display: block; width: 100%; height: 28px; cursor: ew-resize; touch-action: none; }
-.wave-strip { display: none; }
+.pl-wave { display: none; }
+/* the waveform runs the full width of the screen, right above the bottom bar */
+.wave-strip { position: absolute; left: 10px; right: 10px; bottom: 32px; width: calc(100% - 20px); height: 26px; pointer-events: auto; cursor: ew-resize; touch-action: none; }
 .pl-btn, .bar-play { font: inherit; color: inherit; background: none; border: 1px solid #fff; padding: 2px 7px; cursor: pointer; letter-spacing: inherit; text-transform: uppercase; }
 .pl-btn:hover, .bar-play:hover { background: #fff; color: #000; }
 .bar-play { display: none; pointer-events: auto; font-size: 9px; white-space: nowrap; }
 #plTime { font-variant-numeric: tabular-nums; }
 
 /* a hint for the first screen only: left of the player, gone once the page moves */
-.scroll-hint { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); font-size: 9px; animation: blink 1.2s steps(2) infinite; transition: opacity .4s; }
+.scroll-hint { position: absolute; left: 50%; bottom: 66px; transform: translateX(-50%); font-size: 9px; animation: blink 1.2s steps(2) infinite; transition: opacity .4s; }
 .scrolled .scroll-hint { opacity: 0; animation: none; }
 @keyframes blink { 50% { opacity: 0; } }
 
@@ -111,7 +113,7 @@ em { font-style: normal; color: var(--dim); }
 #s1 { position: relative; z-index: 5; height: 520vh; }
 .s1-sticky { position: sticky; top: 0; height: 100vh; overflow: hidden; }
 /* each line is placed every frame by main.js along the figure's silhouette */
-.case { position: absolute; inset: 0; pointer-events: none; clip-path: inset(0 0 34px 0);   /* text stops above the bottom bar */
+.case { position: absolute; inset: 0; pointer-events: none; clip-path: inset(0 0 62px 0);   /* text stops above the waveform and the bottom bar */
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14%, #000 86%, transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0, #000 14%, #000 86%, transparent 100%); }
 .case p {
@@ -181,8 +183,8 @@ em { font-style: normal; color: var(--dim); }
 .tv-bar { position: absolute; left: 0; right: 0; top: 0; height: 44px; padding: 0 310px; display: flex; align-items: center; gap: 14px; z-index: 3; font-size: 10px; }
 .tv-bar .pl-btn { font-weight: 700; }
 .tv-bar .tv-title { font: 700 13px var(--disp); }
-.tv canvas { position: absolute; left: 0; top: 44px; width: 100%; height: calc(100% - 74px); display: block; }
-.tv-lyrics { position: absolute; left: 0; right: 0; top: 44px; bottom: 30px; overflow: hidden; pointer-events: none; z-index: 2;
+.tv canvas { position: absolute; left: 0; top: 44px; width: 100%; height: calc(100% - 104px); display: block; }
+.tv-lyrics { position: absolute; left: 0; right: 0; top: 44px; bottom: 60px; overflow: hidden; pointer-events: none; z-index: 2;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18%, #000 82%, transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0, #000 18%, #000 82%, transparent 100%); }
 .tv-lyrics p { position: absolute; left: 0; top: 0; visibility: hidden; font: 700 9.5px/1.2 var(--disp); white-space: nowrap; color: #f4f4f4; text-transform: uppercase; }
@@ -191,6 +193,7 @@ em { font-style: normal; color: var(--dim); }
 .tv-lyrics p.cur { color: var(--red); }
 /* the SoundCloud widget only plays; the HUD player is the one control */
 .tv iframe { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; border: 0; opacity: 0; pointer-events: none; }
+.tv iframe.bc { position: static; width: min(360px, 46vw); height: 42px; margin-left: auto; opacity: 1; pointer-events: auto; }   /* Bandcamp-only tracks: its own small player */
 #s3.tv-room { padding-bottom: 100vh; }             /* scroll room so the opening line can sit mid-screen */
 .tv-sync { position: absolute; left: 50%; top: 52px; transform: translateX(-50%); z-index: 4; color: var(--red); font-size: 10px; font-weight: 700; }
 .tv-sync textarea { display: block; width: min(80vw, 420px); height: 70px; margin-top: 6px; font: 10px var(--mono); background: #111; color: #eee; border: 1px solid #444; }
@@ -210,7 +213,7 @@ em { font-style: normal; color: var(--dim); }
   .panel.left { width: auto; right: 0; bottom: auto; border: 0; padding: 8px var(--gutter); }
   .panel.left .mini, .panel.left .lower, .panel.left .coord, .panel.left .row.small, .panel.left .prog { display: none; }
   .panel.left .row:not(.small) { justify-content: flex-end; }     /* X / Y on the right: the left is BACK's */
-  .wave-strip { display: block; position: absolute; left: var(--gutter); bottom: 34px; width: calc(100% - 32px); height: 22px; pointer-events: auto; cursor: ew-resize; touch-action: none; }
+  .wave-strip { left: var(--gutter); right: auto; bottom: 34px; width: calc(100% - 32px); height: 22px; }
   .bar { gap: 10px; padding: 0 var(--gutter); }
   .bar .links a:not(:first-child) { display: none; }
   .bar-play { display: block; }

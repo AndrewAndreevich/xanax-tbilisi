@@ -190,6 +190,7 @@ em { font-style: normal; color: var(--dim); }
 .tv-bar { position: absolute; left: 0; right: 0; top: 0; height: 44px; padding: 0 310px; display: flex; align-items: center; gap: 14px; z-index: 3; font-size: 10px; }
 .tv-bar .pl-btn { font-weight: 700; }
 .tv-bar .tv-title { font: 700 13px var(--disp); }
+@media (min-width: 821px) { .tv-bar .tv-title { display: none; } }   /* the HUD player already names the track */
 .tv-nav { display: flex; gap: 6px; }
 .tv-nav .pl-btn:disabled { opacity: .25; cursor: default; background: none; color: inherit; }
 .tv-nav .tv-auto.on { background: #fff; color: #000; }
@@ -203,7 +204,8 @@ em { font-style: normal; color: var(--dim); }
 .tv-lyrics p.cur { color: var(--red); }
 /* the SoundCloud widget only plays; the HUD player is the one control */
 .tv iframe { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; border: 0; opacity: 0; pointer-events: none; }
-.tv iframe.bc { position: static; width: min(360px, 46vw); height: 42px; margin-left: auto; opacity: 1; pointer-events: auto; }   /* Bandcamp-only tracks: its own small player */
+.bc-play { margin-left: auto; width: 40px; height: 40px; overflow: hidden; border: 1px solid #fff; flex: none; }
+.tv .bc-play iframe.bc { position: static; display: block; width: 360px; height: 42px; margin: -1px 0 0 -43px; opacity: 1; pointer-events: auto; }   /* Bandcamp-only tracks: its own small player */
 #s3.tv-room { padding-bottom: 100vh; }             /* scroll room so the opening line can sit mid-screen */
 .tv-sync { position: absolute; left: 50%; top: 52px; transform: translateX(-50%); z-index: 4; color: var(--red); font-size: 10px; font-weight: 700; }
 .tv-sync textarea { display: block; width: min(80vw, 420px); height: 70px; margin-top: 6px; font: 10px var(--mono); background: #111; color: #eee; border: 1px solid #444; }
@@ -237,8 +239,8 @@ em { font-style: normal; color: var(--dim); }
   .bignum { left: 12%; top: 40%; font-size: 72px; }
   .geo { right: var(--gutter); top: 11vh; }
   .tv-bar { padding: 0 var(--gutter); gap: 8px; }
+  .tv-mode .panel.left { display: none; }            /* X / Y would sit under the player bar */
   .tv-bar .tv-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
-  .tv iframe.bc { position: absolute; top: 46px; left: var(--gutter); width: calc(100% - 32px); }
   .lion { right: 2vw; bottom: 30vh; width: 52vw; opacity: .16; }
   #s3 { --up: 17vh; --down: 15vh; padding: calc(var(--down) + 6vh) var(--gutter) 70px; }
 }

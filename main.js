@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=41";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=42";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "41";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "42";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -519,7 +519,7 @@ let ext = null;
 const plTitleIn = $(".pl-title-in"), SITE_TITLE = plTitleIn.innerHTML, barLabel = barPlay.lastChild;
 function setPlayerTitle(a, b) {
   plTitleIn.innerHTML = a ? [a, b, a, b].map((x) => `<span>${x}</span>`).join("") : SITE_TITLE;
-  barLabel.textContent = " " + (a || "SILENCE IN MOTION");
+  barLabel.textContent = a ? "" : " SILENCE IN MOTION";      // in the player the stage bar names the track
 }
 function syncUI() {
   const on = ext ? !ext.paused : !audio.paused;
@@ -938,10 +938,11 @@ async function switchTrack(row) {
 // the track's own parts of the stage: title, buttons, players, lyrics, the HUD player
 function setupTrack(row) {
   const el = tv.el, title = row.dataset.t, cfg = PLAYABLE[title];
-  el.querySelectorAll("iframe").forEach((f) => f.remove());
+  el.querySelectorAll("iframe, .bc-play").forEach((f) => f.remove());
   el.querySelector(".tv-title").textContent = title;
-  if (cfg.bc) el.querySelector(".tv-bar").insertAdjacentHTML("beforeend", `<iframe class="bc" title="${title} on Bandcamp"
-    src="https://bandcamp.com/EmbeddedPlayer/album=${BC_ALBUM}/size=small/bgcol=000000/linkcol=ffffff/track=${cfg.bc}/transparent=true/"></iframe>`);
+  // Bandcamp's player is cut down to its play button: the title is already in the HUD player
+  if (cfg.bc) el.querySelector(".tv-bar").insertAdjacentHTML("beforeend", `<span class="bc-play"><iframe class="bc" title="Play ${title} on Bandcamp"
+    src="https://bandcamp.com/EmbeddedPlayer/album=${BC_ALBUM}/size=small/bgcol=000000/linkcol=ffffff/track=${cfg.bc}/transparent=true/"></iframe></span>`);
   if (cfg.sc) el.insertAdjacentHTML("beforeend", `<iframe class="sc" allow="autoplay" title="${title} on SoundCloud" tabindex="-1"
     src="https://w.soundcloud.com/player/?url=${encodeURIComponent(cfg.sc)}&auto_play=true&show_user=false&show_artwork=false&visual=false"></iframe>`);
   tv.lyr.innerHTML = "";

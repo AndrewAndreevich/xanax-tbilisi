@@ -108,7 +108,7 @@ em { font-style: normal; color: var(--dim); }
 #s1 { position: relative; z-index: 5; height: 520vh; }
 .s1-sticky { position: sticky; top: 0; height: 100vh; overflow: hidden; }
 /* each line is placed every frame by main.js along the figure's silhouette */
-.case { position: absolute; inset: 0; pointer-events: none; }
+.case { position: absolute; inset: 0; pointer-events: none; clip-path: inset(0 0 34px 0); }   /* text stops above the bottom bar */
 .case p {
   position: absolute; left: 0; top: 0; visibility: hidden; will-change: transform;
   font-family: var(--disp); font-weight: 700; font-size: 8.5px; line-height: 1.2;
@@ -183,6 +183,7 @@ em { font-style: normal; color: var(--dim); }
   .clock { display: none; }
   .clock { font-size: 9px; }
   .scroll-hint { right: var(--gutter); }
+  .case { clip-path: inset(36px 0 34px 0); }      /* and below the X/Y strip on phones */
   .case p { font-size: 7.5px; white-space: normal; width: max-content; max-width: 44vw; }
   .cross { width: 150vw; top: 44%; }
   .head { height: auto; width: 125vw; }

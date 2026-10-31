@@ -16,18 +16,25 @@ export const FIRE_GLSL = /* glsl */`
     c = mix(c, vec3(1.0, 0.45, 0.05), smoothstep(0.4, 0.7, h));
     return mix(c, vec3(1.0, 0.95, 0.8), smoothstep(0.75, 1.0, h));
   }
+  // white-grey fire: smoke grey -> ash -> bright white, same steps as the red one
+  vec3 greyPal(float h) {
+    vec3 c = mix(vec3(0.16), vec3(0.42), smoothstep(0.0, 0.4, h));
+    c = mix(c, vec3(0.72), smoothstep(0.4, 0.7, h));
+    return mix(c, vec3(1.0), smoothstep(0.75, 1.0, h));
+  }
   // stepped heat: 5 levels, ordered-dithered on the pixel grid
   float stepHeat(float h, float t) { return floor(clamp(h, 0.0, 1.0) * 5.0 + t) / 5.0; }
 `;
 
-// Edge fire: the paper (bottom) burns along a ragged line; flames grow out of that line.
+// Edge fire: flames grow out of a ragged line near the bottom, on black, white-grey.
 // Variants share the line and the palette, they differ in how the flames are shaped.
 export const VARIANTS = [
-  { id: "paper", name: "PAPER BURN", note: "край бумаги прогорает, обугленная кромка, языки из неё" },
+  { id: "paper", name: "SOFT TONGUES", note: "мягкие клубящиеся языки" },
   { id: "impostor", name: "IMPOSTOR FLAME", note: "та же форма пламени, что на фигуре: шумовые языки" },
   { id: "bigpixel", name: "BIG PIXEL", note: "как IMPOSTOR, но крупный пиксель 8px" },
   { id: "glitch", name: "GLITCH FIRE", note: "пламя рвётся полосами и расслаивается по RGB" },
-  { id: "embers", name: "EMBERS", note: "тлеющий край, низкое пламя и искры вверх" },
+  { id: "embers", name: "EMBERS", note: "низкое пламя и искры вверх" },
+  { id: "figure", name: "AS ON ARSENY", note: "ровно та же формула, что жжёт фигуру: полоса огня и тлеющие точки под ней" },
 ];
 
 const FRAG = /* glsl */`#version 300 es
@@ -39,7 +46,7 @@ const FRAG = /* glsl */`#version 300 es
   ${FIRE_GLSL}
   void main() {
     float v = uVariant;
-    float pix = v == 2.0 ? 8.0 * uDpr : uPix;
+    float pix = v == 2.0 ? 8.0 * uDpr : uPix;              // uPix = 2 css px, as on the figure
     vec2 g = floor(gl_FragCoord.xy / pix) * pix + pix * 0.5;   // pixel-grid sample point
     vec2 p = g / uDpr;                                          // css px, y up from canvas bottom
     float t = bayer4(gl_FragCoord.xy / pix);
@@ -51,20 +58,32 @@ const FRAG = /* glsl */`#version 300 es
       p.x += on * (hash(vec2(band, 3.0)) - 0.5) * 70.0;
     }
 
-    // the burning line of the paper: ragged, slowly crawling
+    // the source line: ragged, slowly crawling (not drawn itself)
     float line = uEdge + (fbm(vec2(p.x / 140.0, T * 0.25)) - 0.5) * 46.0 + (noise(vec2(p.x / 18.0, T * 1.5)) - 0.5) * 8.0;
-    float below = line - p.y;                                   // > 0: inside the paper
+    float below = line - p.y;                                   // > 0: under the line
 
-    if (below > 0.0) {
-      // paper, scorched near the line: char, then a glowing rim
-      float scorch = smoothstep(26.0, 0.0, below);
-      vec3 col = mix(uPaper, vec3(0.55, 0.47, 0.40), smoothstep(0.0, 1.0, scorch) * 0.8);
-      col = mix(col, vec3(0.08, 0.05, 0.04), smoothstep(0.55, 1.0, scorch));
-      float rim = smoothstep(5.0, 0.0, below) * (0.6 + 0.4 * noise(vec2(p.x / 6.0, T * 8.0)));
-      col = mix(col, firePal(stepHeat(0.55 + 0.45 * rim, t)), step(0.35, rim));
-      outColor = vec4(col, 1.0);
-      return;
+    if (v == 5.0) {
+      // the figure's burn, unrolled along the edge: same noise scales (figure ~333 x 666 css px),
+      // same band (-0.09 .. 0.05 of figure height), same ember field below
+      float n = noise(vec2(p.x / 23.8, p.y / 30.3 - T * 4.0));
+      float n2 = noise(vec2(p.x / 11.1 + 7.0, p.y / 74.0 - T * 6.5));
+      float d = (below + (n - 0.5) * 93.0) / 666.0;
+      if (d >= 0.05) {
+        float e = hash(floor(gl_FragCoord.xy / pix) + floor(T * 9.0));
+        float fade = 1.0 - smoothstep(0.05, 0.5, d);
+        if (e > 1.0 - 0.07 * fade) { outColor = vec4(greyPal(0.2 + 0.5 * e), 1.0); return; }
+        outColor = vec4(0.0); return;
+      }
+      if (d > -0.09) {
+        float h = clamp(1.0 - abs(d + 0.01) / 0.08, 0.0, 1.0) * (0.55 + 0.6 * n2) * uStrength;
+        h = stepHeat(h, t);
+        outColor = h > 0.0 ? vec4(greyPal(h), 1.0) : vec4(0.0);
+        return;
+      }
+      outColor = vec4(0.0); return;
     }
+
+    if (below > 0.0) { outColor = vec4(0.0); return; }
 
     float up = -below / uFlame;                                 // 0 at the line, 1 at full flame height
     float h = 0.0;
@@ -88,10 +107,10 @@ const FRAG = /* glsl */`#version 300 es
     }
     h = stepHeat(h, t);
     if (h <= 0.0) { outColor = vec4(0.0); return; }
-    vec3 col = firePal(h);
+    vec3 col = greyPal(h);
     if (v == 3.0) {                                             // glitch: channel split on the torn bands
       float sh = noise(vec2(p.x / 34.0 + 1.0, p.y / 26.0 - T * 4.0));
-      col.b = mix(col.b, 1.0 - col.r, 0.25 * step(0.8, sh));
+      col = mix(col, col.gbr * vec3(0.8, 1.0, 1.2), 0.35 * step(0.8, sh));
     }
     outColor = vec4(col, 1.0);
   }`;
@@ -139,7 +158,7 @@ export function createEdgeFire(canvas, opts = {}) {
     gl.uniform2f(U.uRes, canvas.width, canvas.height);
     gl.uniform1f(U.uTime, time);
     gl.uniform1f(U.uDpr, dpr);
-    gl.uniform1f(U.uPix, 3 * dpr);
+    gl.uniform1f(U.uPix, 2 * dpr);
     gl.uniform1f(U.uEdge, state.edge);
     gl.uniform1f(U.uFlame, state.flame);
     gl.uniform1f(U.uVariant, state.variant);

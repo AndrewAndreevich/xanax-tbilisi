@@ -25,6 +25,10 @@
   .tag span { display: block; margin-top: 6px; font-size: 11px; font-weight: 700; }
   .tag em { display: block; font-style: normal; color: var(--dim); text-transform: none; font-size: 11px; margin-top: 2px; }
   footer { padding: 24px 16px 40px; color: var(--dim); }
+  @media (max-width: 820px) {
+    header { position: static; }                       /* a sticky 3-line header would sit on the labels */
+    .tag b { font-size: 44px; }
+  }
 </style>
 </head>
 <body>
@@ -35,14 +39,14 @@
   <a href="./">← НА САЙТ</a>
 </header>
 <main id="lab"></main>
-<footer>Все варианты используют одну палитру и один дизеринг с горящей фигурой Арсения. Внизу каждой панели белый слайд, огонь растёт из его края. Назови букву.</footer>
+<footer>Бело-серая палитра, тот же дизеринг 2px, что на фигуре. F — точная копия огня с импостора. Назови букву.</footer>
 
 <script type="module">
-  import { VARIANTS, createEdgeFire } from "./fire.js?v=1";
+  import { VARIANTS, createEdgeFire } from "./fire.js?v=2";
   const lab = document.getElementById("lab");
   const fires = VARIANTS.map((v, i) => {
     const sec = document.createElement("section");
-    sec.innerHTML = `<canvas></canvas><div class="tag"><b>${"ABCDE"[i]}</b><span>${v.name}</span><em>${v.note}</em></div>`;
+    sec.innerHTML = `<canvas></canvas><div class="tag"><b>${"ABCDEF"[i]}</b><span>${v.name}</span><em>${v.note}</em></div>`;
     lab.appendChild(sec);
     const f = createEdgeFire(sec.querySelector("canvas"), { variant: i });
     return { sec, f, visible: false };
@@ -51,7 +55,7 @@
     if (!f) return;
     f.resize();
     const h = sec.clientHeight;
-    f.state.edge = h * 0.3;
+    f.state.edge = h * (f.state.variant === 5 ? 0.42 : 0.1);   // F needs room below for its embers
     f.state.flame = h * +document.getElementById("flame").value;
   });
   const io = new IntersectionObserver((es) => es.forEach((e) => {

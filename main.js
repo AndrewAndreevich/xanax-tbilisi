@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=49";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=50";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "49";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "50";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -104,13 +104,13 @@ const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 // short lines (after a comma, else between words, never inside [...]) that stay on its side,
 // so it neither runs off the screen nor into the figure
 const CASE_MAX = isMobile() ? 21 : 28;                 // characters per line
-function breakLine(t) {
-  if (t.length <= CASE_MAX) return [t];
+function breakLine(t, max = CASE_MAX) {
+  if (t.length <= max) return [t];
   // the fewest lines that fit, with the words spread so the longest line is as short as it
   // can be (no lonely last word); a break after a comma counts a little shorter
   const w = t.match(/\[[^\]]*\]\S*|\S+/g), n = w.length;
   const len = (i, j) => w.slice(i, j).join(" ").length - (w[j - 1].endsWith(",") && j < n ? 4 : 0);
-  for (let k = Math.ceil(t.length / CASE_MAX); k <= n; k++) {
+  for (let k = Math.ceil(t.length / max); k <= n; k++) {
     const memo = new Map();
     const best = (i, k) => {                                // [longest line, breaks] for w[i..] in k lines
       if (k === 1) return [len(i, n), []];
@@ -125,7 +125,7 @@ function breakLine(t) {
       return r;
     };
     const [m, br] = best(0, k);
-    if (m <= CASE_MAX) return [0, ...br].map((i, q) => w.slice(i, [...br, n][q]).join(" "));
+    if (m <= max) return [0, ...br].map((i, q) => w.slice(i, [...br, n][q]).join(" "));
   }
   return [t];
 }
@@ -1048,8 +1048,9 @@ function bindWidget(token) {
 }
 
 function buildLyrics(lines) {
-  tv.lyr.innerHTML = lines.map((l, i) =>
-    `<p class="${i % 2 ? "R" : "L"}">${[...l].map((c) => `<span>${esc(c)}</span>`).join("")}</p>`).join("");
+  // a long line is broken into short ones on its own side, so it does not reach into the other side's text
+  tv.lyr.innerHTML = lines.flatMap((l, i) => breakLine(l, isMobile() ? 22 : 30).map((part) =>
+    `<p class="${i % 2 ? "R" : "L"}">${[...part].map((c) => `<span>${esc(c)}</span>`).join("")}</p>`)).join("");
   const lh = isMobile() ? 12 : 14, y = { L: 0, R: lh * 0.5 };
   tv.lines = [...tv.lyr.querySelectorAll("p")].map((p) => {
     const side = p.classList.contains("L") ? "L" : "R";

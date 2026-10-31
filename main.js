@@ -61,7 +61,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "8";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "9";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -141,6 +141,49 @@ $("#glyphs").innerHTML = G.map((g) => `<span class="gl ${g.cls}" style="left:${g
   svg.innerHTML = `<path d="${red}" fill="#ff0a0a"/><path d="${white}" fill="#f2f2f2"/>`;
 })();
 
+// ---------------------------------------------------------------- digital fire on the slide-2 edge
+// Classic Doom fire on a coarse grid: heat rises from the white edge, cools and
+// drifts sideways; the palette is stepped and dithered so it reads as pixels.
+const fireCv = $("#fire"), fireCtx = fireCv.getContext("2d");
+const FIRE_CELL = 5;
+const FIRE_PAL = [
+  [0, 0, 0, 0], [70, 0, 0, 120], [140, 0, 0, 200], [210, 0, 0, 255], [255, 10, 10, 255],
+  [255, 60, 10, 255], [255, 130, 20, 255], [255, 200, 60, 255], [255, 240, 190, 255], [242, 242, 242, 255],
+];
+const FIRE_MAX = 54;
+let fw = 0, fh = 0, heat = null, fireImg = null;
+function sizeFire() {
+  const r = fireCv.getBoundingClientRect();
+  fw = Math.max(1, Math.ceil(r.width / FIRE_CELL)); fh = Math.max(1, Math.ceil(r.height / FIRE_CELL));
+  fireCv.width = fw; fireCv.height = fh;
+  heat = new Uint8Array(fw * fh);
+  fireImg = fireCtx.createImageData(fw, fh);
+}
+function stepFire(t, strength) {
+  if (!heat) return;
+  // source row: white-hot, broken up along x so the flames come in tongues
+  for (let x = 0; x < fw; x++) {
+    const tongue = vnoise(x * 0.09, t * 1.3) * 0.75 + vnoise(x * 0.31 + 50, t * 3.1) * 0.35;
+    heat[(fh - 1) * fw + x] = Math.round(FIRE_MAX * Math.min(1, Math.max(0, (tongue - 0.35) * 1.6 * strength + 0.2)));
+  }
+  for (let y = 0; y < fh - 1; y++) {
+    for (let x = 0; x < fw; x++) {
+      const src = (y + 1) * fw + x;
+      const r = (Math.random() * 3) | 0;
+      const dst = y * fw + Math.min(fw - 1, Math.max(0, x - r + 1));
+      heat[dst] = Math.max(0, heat[src] - ((Math.random() * 4) | 0));   // avg 1.5/row: tongues reach ~30–65% of the strip
+    }
+  }
+  const d = fireImg.data, steps = FIRE_PAL.length - 1;
+  for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) {
+    const v = heat[y * fw + x] / FIRE_MAX * steps;
+    const k = Math.min(steps, Math.floor(v + BAYER[(y & 3) * 4 + (x & 3)] - 0.5 + 0.5));
+    const c = FIRE_PAL[Math.max(0, k)], i = (y * fw + x) * 4;
+    d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = c[3];
+  }
+  fireCtx.putImageData(fireImg, 0, 0);
+}
+
 // ---------------------------------------------------------------- dithered terrain
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
 const hash = (x, y) => { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); };
@@ -172,40 +215,80 @@ function drawTerrain(cv, color, seed, gain) {
 
 // ---------------------------------------------------------------- impostor figure (char01 ring16)
 // 16 views round one ring (assets/arseny_body.*, built by tools/build_impostor.py).
-// The quad picks two neighbouring frames by yaw and crossfades them; the look
-// (ordered dither, RGB split, glitch bands) is all in the fragment shader.
+// The quad shows one frame at a time, picked by scroll; the look (ordered
+// dither, RGB split, glitch bands, the burn from the feet up) is all in the fragment shader.
 const VERT = /* glsl */`
   varying vec2 vUv;
   void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 const FRAG = /* glsl */`
   uniform sampler2D uAtlas;
   uniform vec2 uGrid;
-  uniform float uA, uB, uMix, uTime, uGlitch, uSplit, uPix;
+  uniform float uA, uB, uMix, uTime, uGlitch, uSplit, uPix, uBurn;
   varying vec2 vUv;
   float bayer2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
   float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
+  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float noise(vec2 p) {
+    vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+  }
   vec4 cell(float f, vec2 uv) {
-    if (uv.x < 0.0 || uv.x > 1.0) return vec4(0.0);
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec4(0.0);
     float c = mod(f, uGrid.x), r = floor(f / uGrid.x);
     return texture2D(uAtlas, vec2((c + uv.x) / uGrid.x, 1.0 - (r + 1.0 - uv.y) / uGrid.y));
   }
   vec4 view(vec2 uv) { return mix(cell(uA, uv), cell(uB, uv), uMix); }
+  // red-paper fire: deep red -> site red -> orange -> hot white, stepped
+  vec3 firePal(float h) {
+    vec3 c = mix(vec3(0.35, 0.0, 0.0), vec3(1.0, 0.04, 0.04), smoothstep(0.0, 0.4, h));
+    c = mix(c, vec3(1.0, 0.45, 0.05), smoothstep(0.4, 0.7, h));
+    return mix(c, vec3(1.0, 0.95, 0.8), smoothstep(0.75, 1.0, h));
+  }
   void main() {
     vec2 uv = vUv;
     float band = floor(uv.y * 70.0);
     float g = step(0.94, fract(sin(band * 91.7 + floor(uTime * 10.0)) * 4375.85)) * uGlitch;
     uv.x += g * (fract(sin(band * 13.1) * 917.3) - 0.5) * 0.25;
+    vec2 px = floor(gl_FragCoord.xy / uPix);
+    float t = bayer4(gl_FragCoord.xy / uPix);
     vec4 cr = view(uv + vec2(uSplit, 0.0));
     vec4 cg = view(uv);
     vec4 cb = view(uv - vec2(uSplit, 0.0));
-    float t = bayer4(gl_FragCoord.xy / uPix);
     float a = max(cg.a, max(cr.a, cb.a));
+
+    // burn front climbing from the feet (uv.y = 0) to above the head
+    float n = noise(vec2(uv.x * 14.0, uv.y * 22.0 - uTime * 4.0));
+    float n2 = noise(vec2(uv.x * 30.0 + 7.0, uv.y * 9.0 - uTime * 6.5));
+    float front = uBurn * 1.3 - 0.12;
+    float d = front - uv.y + (n - 0.5) * 0.14;          // > 0: already burnt
+    if (uBurn > 0.001) {
+      // flame tongues: silhouette pixels just below this point, licking upward
+      float lick = 0.03 + 0.09 * n2;
+      float below = view(uv - vec2((n - 0.5) * 0.02, lick)).a;
+      bool flame = d > -0.09 && d < 0.05 && (a > 0.25 || below > 0.25);
+      if (d >= 0.05) {                                  // charred: sparse embers only
+        float e = hash(px + floor(uTime * 9.0));
+        if (a > 0.4 && e > 0.93) { gl_FragColor = vec4(firePal(0.2 + 0.5 * e), 1.0); return; }
+        discard;
+      }
+      if (flame) {
+        float h = clamp(1.0 - abs(d + 0.01) / 0.08, 0.0, 1.0) * (0.55 + 0.6 * n2);
+        h = floor(h * 5.0 + t) / 5.0;                   // stepped, dithered heat
+        if (h <= 0.0) discard;
+        gl_FragColor = vec4(firePal(h), 1.0);
+        return;
+      }
+    }
+
     if (a < t * 0.9 + 0.05) discard;
     vec3 c = vec3(cr.r, cg.g, cb.b);
     float l = dot(cg.rgb, vec3(0.299, 0.587, 0.114));
     l = clamp((l - 0.04) * 1.5, 0.0, 1.0);
     float q = floor(l * 3.0 + t) / 3.0;                       // 4 dithered tones
     vec3 col = mix(vec3(q), c * 1.25, 0.32);
+    // glow above the front: the body heats up red before it catches
+    float heat = uBurn > 0.001 ? smoothstep(-0.25, -0.05, d) : 0.0;
+    col = mix(col, vec3(1.0, 0.1, 0.05) * (0.4 + q), heat * 0.7);
     col *= 0.82 + 0.18 * step(0.5, fract(gl_FragCoord.y / (uPix * 2.0)));   // scanlines
     gl_FragColor = vec4(col, 1.0);
   }`;
@@ -220,7 +303,7 @@ const figMat = new THREE.ShaderMaterial({
   uniforms: {
     uAtlas: { value: null }, uGrid: { value: new THREE.Vector2(8, 2) },
     uA: { value: 0 }, uB: { value: 1 }, uMix: { value: 0 }, uTime: { value: 0 },
-    uGlitch: { value: 0 }, uSplit: { value: 0.004 }, uPix: { value: 2 },
+    uGlitch: { value: 0 }, uSplit: { value: 0.004 }, uPix: { value: 2 }, uBurn: { value: 0 },
   },
 });
 const figQuad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), figMat);
@@ -327,6 +410,7 @@ function resize() {
   panelW = $(".panel.left").offsetWidth;
   drawTerrain($("#terrainDark"), "#2b2b2b", 3.1, 1.25);
   drawTerrain($("#terrainLight"), "#bdbdbd", 7.7, 1.5);
+  sizeFire();
 }
 addEventListener("resize", resize);
 
@@ -346,6 +430,7 @@ const trackEls = [...document.querySelectorAll("#tracks li")];
 const s1 = $("#s1"), s2 = $("#s2"), cross = $("#cross"), bignum = $("#bignum"), lion = $("#lion");
 const NUMS = ["2022", "+995", "6.66", "0300"];
 let p1 = 0, lastTrack = -1, glitchT = 0;
+let spin = 0, spinS = 0, burn = 0, burnS = 0, fireTick = 0;
 
 function onScroll() {
   const r1 = s1.getBoundingClientRect();
@@ -354,6 +439,10 @@ function onScroll() {
   const ti = Math.min(TRACKS.length - 1, Math.floor(p1 * TRACKS.length));
   if (ti !== lastTrack) { trackEls[lastTrack]?.classList.remove("on"); trackEls[ti].classList.add("on"); lastTrack = ti; glitchT = 0.35; }
 
+  // turn until slide 2 has fully covered the figure; burn during the last stretch before that
+  const cover = s2.offsetTop;                                  // scrollY at which slide 2 fills the screen
+  spin = clamp(scrollY / cover);
+  burn = clamp((scrollY - (cover - innerHeight * 1.75)) / (innerHeight * 1.35));
   const r2 = s2.getBoundingClientRect();
   const p2 = clamp(-r2.top / (r2.height - innerHeight));
   const enter = clamp(1 - r2.top / innerHeight);              // 0 → 1 while slide 2 rises
@@ -465,7 +554,10 @@ function frame() {
   if (BODY && canvas.style.visibility !== "hidden") {
     const n = BODY.frames.length;
     // scroll alone drives the turn: frames go 0, 1, 2 … 15, 0 in order, one at a time
-    const a = Math.floor(p1s * 2 * n) % n;
+    spinS += (spin - spinS) * Math.min(1, dt * 7);
+    burnS += (burn - burnS) * Math.min(1, dt * 5);
+    const a = Math.floor(spinS * 2.6 * n) % n;
+    figMat.uniforms.uBurn.value = burnS;
     glitchT = Math.max(0, glitchT - dt);
     const spike = Math.random() < 0.012 ? 0.3 : 0;
     figMat.uniforms.uA.value = a;
@@ -476,6 +568,13 @@ function frame() {
     figMat.uniforms.uSplit.value = 0.003 + glitchT * 0.02;
     renderer.render(scene, camera);
     flowText(a);
+  }
+  // fire on the slide-2 edge, ~30 fps, only while that edge is on screen
+  const edgeY = s2.getBoundingClientRect().top;
+  fireTick += dt;
+  if (edgeY > -20 && edgeY < innerHeight + fireCv.offsetHeight && fireTick > 1 / 30) {
+    fireTick = 0;
+    stepFire(t, 0.6 + 0.5 * burnS);                          // flames grow while Arseny burns
   }
   requestAnimationFrame(frame);
 }

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=48";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=49";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "48";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "49";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -496,9 +496,12 @@ function onScroll() {
   const r2 = s2.getBoundingClientRect();
   const p2 = clamp(-r2.top / (r2.height - innerHeight));
   const enter = clamp(1 - r2.top / innerHeight);              // 0 → 1 while slide 2 rises
-  cross.style.setProperty("--rot", `${-28 * p2}deg`);
-  cross.style.setProperty("--sc", 0.85 + 0.15 * enter + 0.12 * p2);
-  cross.style.setProperty("--mx", clamp((p2 - 0.3) * 3));
+  // the cross turns the whole time any of slide 2 is on screen: from the moment its white
+  // edge comes up until it has scrolled away (not only while it is pinned)
+  const pv = clamp((innerHeight - r2.top) / (r2.height + innerHeight));
+  cross.style.setProperty("--rot", `${-50 * pv}deg`);
+  cross.style.setProperty("--sc", 0.85 + 0.15 * enter + 0.12 * pv);
+  cross.style.setProperty("--mx", clamp((pv - 0.2) * 4));
   headCv.style.setProperty("--hy", `${(1 - enter) * 22}vh`);
   lion.style.setProperty("--ly", `${(1 - enter) * 14 - p2 * 8}vh`);
   headP2 = p2;

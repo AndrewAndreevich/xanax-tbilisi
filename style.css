@@ -142,8 +142,8 @@ em { font-style: normal; color: var(--dim); }
 .lion { position: absolute; right: 23vw; bottom: 10vh; width: min(26vw, 420px); opacity: .22; transform: translateY(var(--ly, 0)); pointer-events: none; }
 .cross { position: absolute; left: 50%; top: 46%; width: min(82vw, 1150px); aspect-ratio: 1; transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) scale(var(--sc, 1)); }
 .cross i { position: absolute; background: var(--red); display: block; }
-.cross .bar-v { left: 43%; width: 14%; top: -30%; height: 130%; }
-.cross .bar-h { top: 43%; height: 14%; left: 3%; width: 94%; }
+/* the cross itself, a little crooked like the cover's crosses (tools/build_crosses.py) */
+.cross .big-x { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; fill: var(--red); }
 .cross .mini-x { position: absolute; height: auto; fill: var(--red); opacity: var(--mx, 0); overflow: visible; transform: translate(-50%, -50%); }
 /* the four crooked crosses from the album cover (tools/build_crosses.py), one in each quarter */
 .cross .q1 { left: 21.5%; top: 21.5%; } .cross .q2 { left: 78.5%; top: 21.5%; }

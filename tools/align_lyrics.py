@@ -56,7 +56,7 @@ def transcribe(audio, cache, only):
         lines = lyrics(slug)
         t0 = time.time()
         segs, _ = model.transcribe(pcm(audio / f"{slug}.mp3"), language="en", word_timestamps=True,
-                                   initial_prompt=" ".join(lines)[:800] or None, condition_on_previous_text=False,
+                                   initial_prompt=(None if os.environ.get("NO_PROMPT") else " ".join(lines)[:800] or None), condition_on_previous_text=False,
                                    vad_filter=False, beam_size=5)
         heard = [[w.word.strip(), round(w.start, 2), round(w.end, 2)] for s in segs for w in (s.words or [])]
         f.write_text(json.dumps({"lyrics": lines, "heard": heard}, ensure_ascii=False), encoding="utf-8")
@@ -68,7 +68,14 @@ def sung(lines, heard):
     matched to the next line of the text or to a line sung before (a chorus coming back). Lines
     Whisper did not catch are kept in their place. Returns [(line index, [[start, end] per word])]."""
     L = [[norm(w) for w in l.split()] for l in lines]
-    H = [norm(w) for w, _, _ in heard]
+    # a misheard word counts as the lyric word it nearly is ("shine" ~ "shines", "lovers" ~ "flowers")
+    vocab = sorted(set(w for l in L for w in l))
+    def near(h):
+        if h in vocab or len(h) < 4:
+            return h
+        best = max(vocab, key=lambda v: difflib.SequenceMatcher(None, h, v).ratio())
+        return best if difflib.SequenceMatcher(None, h, best).ratio() >= 0.8 else h
+    H = [near(norm(w)) for w, _, _ in heard]
 
     def fit(i, p):                       # how well line i matches the heard words from p on
         n = len(L[i])
@@ -82,19 +89,18 @@ def sung(lines, heard):
     out, nxt, p = [], 0, 0
     while p < len(H):
         best = (0, None, None)
-        for k in range(3):                                   # the next line (or one of the two after it)
+        for k in range(len(lines) - nxt):                   # the next line, or a later one (lines Whisper missed)
             i = nxt + k
-            if i < len(lines):
-                sc, pr = fit(i, p)
-                sc += 0.15 - 0.12 * k
-                if sc > best[0]:
-                    best = (sc, i, pr)
+            sc, pr = fit(i, p)
+            sc += 0.15 - 0.12 * k if k < 3 else -0.3
+            if sc > best[0]:
+                best = (sc, i, pr)
         for i in sorted(set(j for j, _ in out)):            # a line sung before: a repeat
             sc, pr = fit(i, p)
             if sc >= 0.6 and sc > best[0]:
                 best = (sc, i, pr)
         sc, i, pr = best
-        if i is None or sc < 0.55:
+        if i is None or sc < 0.5:
             p += 1
             continue
         for j in range(nxt, i):                              # lines skipped over: not heard, keep them
@@ -117,7 +123,7 @@ def sung(lines, heard):
         nx = min([q for q in known if q > k], default=None)
         if pv is not None and nx is not None:
             a, b = flat[pv][1], flat[nx][0]
-            st = (b - a) / (nx - pv)
+            st = min(0.45, (b - a) / (nx - pv))             # across an instrumental gap: sung right after
             flat[k] = [round(a + st * (k - pv), 2), round(a + st * (k - pv + 1), 2)]
         elif pv is not None:
             s0 = flat[pv][1] + 0.4 * (k - pv)
@@ -125,6 +131,7 @@ def sung(lines, heard):
         else:
             s0 = max(0, flat[nx][0] - 0.4 * (nx - k)) if nx is not None else 0
             flat[k] = [round(s0, 2), round(s0 + 0.35, 2)]
+    flat = [[s0, round(min(e0, s0 + 1.5), 2)] for s0, e0 in flat]   # a held note or a gap: no word stays lit for long
     res, q = [], 0
     for i, ts in out:
         res.append((i, flat[q:q + len(ts)]))
@@ -152,11 +159,24 @@ def build(cache):
         for i, _ in seq:
             count[key(i)] = count.get(key(i), 0) + 1
         chorus = lambda i: count[key(i)] > 1
+        # stanzas: a run of 3+ chorus lines in a row is a chorus of its own; a refrain line coming
+        # back every other line stays in its verse; otherwise a pause of 3.5 s starts a new stanza
+        run = [0] * len(seq)
+        k = 0
+        while k < len(seq):
+            j = k
+            while j < len(seq) and chorus(seq[j][0]):
+                j += 1
+            for q in range(k, j):
+                run[q] = j - k
+            k = max(j, k + 1)
+        block = lambda k: run[k] >= 3
         stanza, st = [], 0
         for k, (i, ts) in enumerate(seq):
             if k:
-                pi, pts = seq[k - 1]
-                if chorus(i) != chorus(pi) or ts[0][0] - pts[-1][1] > 2.5:
+                pts = seq[k - 1][1]
+                pause = ts[0][0] - pts[-1][1] > 3.5 and not (chorus(i) and chorus(seq[k - 1][0]))
+                if block(k) != block(k - 1) or pause:
                     st += 1
             stanza.append(st)
         data[title] = {"src": lines, "lines": [lines[i] for i, _ in seq], "stanza": stanza,

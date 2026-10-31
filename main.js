@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=19";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=20";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "19";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "20";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -495,11 +495,25 @@ function drawWaves() {
     }
   }
 }
-waveCvs.forEach((cv) => cv.addEventListener("click", (e) => {
-  const r = e.currentTarget.getBoundingClientRect();
-  if (ext) { ext.seek(clamp((e.clientX - r.left) / r.width)); return; }
-  if (isFinite(audio.duration)) audio.currentTime = clamp((e.clientX - r.left) / r.width) * audio.duration;
-}));
+// scrub: press and drag along the waveform (or, in the track view, up/down on the stage);
+// the position — and with it the lyrics — follows the finger, the player catches up
+let scrub = null;
+function scrubTo(k, commit) {
+  k = clamp(k);
+  if (ext) {
+    tv.progress = k; tv.pos = k * tv.dur; tv.scrubbing = !commit;
+    const now = performance.now();
+    if (commit || now - (scrub?.last || 0) > 160) { ext.seek(k); if (scrub) scrub.last = now; }
+  } else if (isFinite(audio.duration)) audio.currentTime = k * audio.duration;
+}
+waveCvs.forEach((cv) => {
+  const at = (e) => { const r = cv.getBoundingClientRect(); return (e.clientX - r.left) / r.width; };
+  cv.addEventListener("pointerdown", (e) => { scrub = { last: 0 }; cv.setPointerCapture(e.pointerId); scrubTo(at(e)); e.preventDefault(); });
+  cv.addEventListener("pointermove", (e) => { if (scrub) scrubTo(at(e)); });
+  const end = (e) => { if (scrub) { scrubTo(at(e), true); scrub = null; } };
+  cv.addEventListener("pointerup", end);
+  cv.addEventListener("pointercancel", end);
+});
 ["play", "pause"].forEach((ev) => audio.addEventListener(ev, syncUI));
 audio.addEventListener("timeupdate", () => {
   if (ext) return;
@@ -601,7 +615,8 @@ function sizePills() {
 // silhouette in step with playback. BACK folds it away.
 const tv = { el: null, row: null, cv: null, ctx: null, lyr: null, lines: [], streamH: 0, widget: null,
   progress: 0, pos: 0, dur: 0, img: null, meta: null, rect: { x: 0, y: 0, w: 0, h: 0 }, resume: false,
-  title: "", times: null, syncing: false, tapTimes: [], appear0: 0, busy: false, peaks: null };
+  title: "", times: null, syncing: false, tapTimes: [], appear0: 0, busy: false, peaks: null,
+  scrubbing: false, Ys: null, prevYs: null, wob: 0, lastT: 0 };
 const SYNC = new URLSearchParams(location.search).has("sync");
 const timesKey = (t) => `xt-times:${t}`;
 const savedTimes = (t) => { try { return JSON.parse(localStorage.getItem(timesKey(t))); } catch { return null; } };
@@ -680,7 +695,8 @@ async function openTrack(row) {
   row.after(el);
   row.classList.add("on");
   Object.assign(tv, { el, row, cv: el.querySelector("canvas"), lyr: el.querySelector(".tv-lyrics"), lines: [], progress: 0, pos: 0, dur: 0, widget: null, img: null,
-    title, times: cfg.times || savedTimes(title), syncing: SYNC, tapTimes: [], appear0: 0, peaks: null });
+    title, times: cfg.times || savedTimes(title), syncing: SYNC, tapTimes: [], appear0: 0, peaks: null,
+    scrubbing: false, Ys: null, prevYs: null, wob: 0, lastT: 0 });
   tv.ctx = tv.cv.getContext("2d");
   el.querySelector(".tv-back").addEventListener("click", closeTrack);
 
@@ -700,6 +716,23 @@ async function openTrack(row) {
     box.textContent = "SYNC: TAP / SPACE AT THE START OF EACH LINE";
     el.appendChild(box);
     el.addEventListener("pointerdown", (e) => { if (!e.target.closest("button, iframe, textarea")) tapLine(); });
+  }
+  if (!SYNC) {
+    // drag the lyrics up or down: the track follows (down = later, the text falls with time)
+    let drag = null;
+    el.addEventListener("pointerdown", (e) => {
+      if (e.target.closest("button")) return;
+      drag = { y: e.clientY, k: tv.progress };
+      scrub = { last: 0 };
+      el.setPointerCapture(e.pointerId);
+    });
+    el.addEventListener("pointermove", (e) => {
+      if (!drag || !ext) return;
+      scrubTo(drag.k + (e.clientY - drag.y) / (tv.streamH + tv.cv.clientHeight + 20));
+    });
+    const end = () => { if (drag) { drag = null; scrubTo(tv.progress, true); scrub = null; } };
+    el.addEventListener("pointerup", end);
+    el.addEventListener("pointercancel", end);
   }
   const assets = Promise.all([loadImpostor(cfg.impostor), loadScApi().catch(() => null)]);
 
@@ -745,6 +778,7 @@ async function openTrack(row) {
     w.bind(SC.Widget.Events.PAUSE, () => { if (ext) { ext.paused = true; syncUI(); } });
     w.bind(SC.Widget.Events.FINISH, () => { if (ext) { ext.paused = true; syncUI(); } });
     w.bind(SC.Widget.Events.PLAY_PROGRESS, (e) => {
+      if (tv.scrubbing) return;
       tv.progress = e.relativePosition;
       tv.pos = e.currentPosition / 1000;
       if (ext && tv.el === el) {
@@ -797,6 +831,9 @@ function carEdges(frame, y) {
 
 function tvTick(t) {
   if (!tv.el || !tv.img) return;
+  const nowMs = performance.now();
+  const dt = Math.min(0.05, Math.max(0.001, (nowMs - (tv.lastT || nowMs)) / 1000 || 0.016));
+  tv.lastT = nowMs;
   const cv = tv.cv, dpr = Math.min(devicePixelRatio, 2);
   const W = cv.clientWidth, H = cv.clientHeight;
   if (!W || !H) return;
@@ -835,38 +872,62 @@ function tvTick(t) {
   } else {
     Y = -H / 2 - 20 + (tv.progress || 0) * (tv.streamH + H + 20);
   }
+  // the stream follows the track with a little lag; moving it (playing, scrubbing) feeds
+  // a wobble that dies down — the text behaves like jelly, not like a ruler
+  tv.Ys = tv.Ys == null ? Y : tv.Ys + (Y - tv.Ys) * Math.min(1, dt * 7);
+  const vel = (tv.Ys - (tv.prevYs ?? tv.Ys)) / dt;
+  tv.prevYs = tv.Ys;
+  tv.wob = Math.min(16, (tv.wob || 0) * Math.pow(0.08, dt) + Math.abs(vel) * dt * 0.6);
   const gap = isMobile() ? 6 : 12, cx = W / 2;
   const minX = isMobile() ? 6 : panelW + 10, maxX = isMobile() ? W - 6 : W - panelW - 10;
-  // a line that does not fit beside the car bends: from the car's edge on, its letters
-  // curl away on an arc (up above the car's middle, down below it) instead of running over it
-  const R = isMobile() ? 16 : 24, carMid = tv.rect.y + tv.rect.h / 2;
+  // a line that does not fit beside the car bends softly round it: past the start of the
+  // bend its letters ease towards the car's edge (never over it) and the rest of the line
+  // flows along the car — up above the car's middle, down below it
+  const R = isMobile() ? 22 : 34, carMid = tv.rect.y + tv.rect.h / 2;
   for (const ln of tv.lines) {
-    const y = H / 2 + (Y - ln.y0);
-    if (y < -30 || y > H + 10) { ln.p.style.visibility = "hidden"; ln.x = null; continue; }
+    const y = H / 2 + (tv.Ys - ln.y0);
+    if (y < -40 || y > H + 20) {
+      ln.p.style.visibility = "hidden"; ln.x = null;
+      for (const c of ln.chars) c.sx = undefined;
+      continue;
+    }
     ln.p.style.visibility = "visible";
     const e = carEdges(frame, y + ln.h / 2);
     const L = ln.side === "L";
     let tx = L ? (e ? e[0] - gap - ln.w : cx - 8 - ln.w) : (e ? e[1] + gap : cx + 8);
     tx = Math.max(minX, Math.min(maxX - ln.w, tx));
-    ln.x = ln.x == null ? tx : ln.x + (tx - ln.x) * 0.3;
+    ln.x = ln.x == null ? tx : ln.x + (tx - ln.x) * Math.min(1, dt * 12);
     const B = e ? (L ? e[0] - gap : e[1] + gap) : null;          // where the car begins for this line
     const dir = y + ln.h / 2 < carMid ? -1 : 1;
-    for (const c of ln.chars) {
+    ln.chars.forEach((c, i) => {
       const px = ln.x + c.x + c.w / 2;
       let x = px, yy = y, rot = 0;
       if (B != null) {
-        const S = L ? B - R : B + R;                              // the bend starts R before the edge
+        const S = L ? B - R : B + R;
         const over = L ? px - S : S - px;
         if (over > 0) {
-          const arc = R * Math.PI / 2;
-          const th = Math.min(over, arc) / R;
-          x = L ? S + R * Math.sin(th) : S - R * Math.sin(th);
-          yy = y + dir * R * (1 - Math.cos(th)) + (over > arc ? dir * (over - arc) : 0);
-          rot = (L ? dir : -dir) * th;
+          const th = Math.tanh(over / R), slope = 1 - th * th;
+          const xs = R * th, ys = (over - xs) * 1.15;
+          x = L ? S + xs : S - xs;
+          yy = y + dir * ys;
+          rot = (L ? 1 : -1) * Math.atan2(dir * 1.15 * (1 - slope), slope);
         }
       }
-      c.el.style.transform = `translate3d(${(x - c.w / 2).toFixed(1)}px, ${yy.toFixed(1)}px, 0) rotate(${rot.toFixed(3)}rad)`;
-    }
+      yy += Math.sin(px * 0.03 + t * 3.2 + ln.y0 * 0.1) * tv.wob * 0.25;  // ripple while it moves
+      // the line itself moves rigidly with the track; only its deformation (bend + ripple)
+      // rides on an under-damped spring per letter — jelly, but it never flies apart
+      const dx = x - px, dy = yy - y;
+      if (c.sx === undefined) { c.sx = dx; c.sy = dy; c.sr = rot; c.vx = 0; c.vy = 0; }
+      const kS = 120 + (i % 5) * 12, dmp = 13;
+      for (let sub = 0; sub < 2; sub++) {                          // two half-steps: stable at low fps
+        const h = dt / 2;
+        c.vx += ((dx - c.sx) * kS - c.vx * dmp) * h;
+        c.vy += ((dy - c.sy) * kS - c.vy * dmp) * h;
+        c.sx += c.vx * h; c.sy += c.vy * h;
+      }
+      c.sr += (rot - c.sr) * Math.min(1, dt * 10);
+      c.el.style.transform = `translate3d(${(px + c.sx - c.w / 2).toFixed(1)}px, ${(y + c.sy).toFixed(1)}px, 0) rotate(${c.sr.toFixed(3)}rad)`;
+    });
   }
   tv.lines.forEach((ln, i) => ln.p.classList.toggle("cur", i === curIdx));
 }

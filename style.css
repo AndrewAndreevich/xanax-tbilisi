@@ -84,7 +84,7 @@ em { font-style: normal; color: var(--dim); }
 .pl-viz { height: 26px; display: flex; align-items: flex-end; gap: 2px; }
 .pl-viz i { flex: 1; height: 100%; background: #fff; transform-origin: bottom; transform: scaleY(.04); }
 /* progress as a waveform: red = played, white = still to come; click to seek */
-.pl-wave { display: block; width: 100%; height: 28px; cursor: pointer; }
+.pl-wave { display: block; width: 100%; height: 28px; cursor: ew-resize; touch-action: none; }
 .wave-strip { display: none; }
 .pl-btn, .bar-play { font: inherit; color: inherit; background: none; border: 1px solid #fff; padding: 2px 7px; cursor: pointer; letter-spacing: inherit; text-transform: uppercase; }
 .pl-btn:hover, .bar-play:hover { background: #fff; color: #000; }
@@ -174,6 +174,8 @@ em { font-style: normal; color: var(--dim); }
 /* full-bleed: the stage breaks out of the list column to the whole screen */
 .tv { grid-column: 1 / -1; position: relative; width: 100vw; margin-left: calc((100% - 100vw) / 2); height: 0; overflow: hidden; background: #000; transition: height .75s cubic-bezier(.7, 0, .2, 1); }
 .tv.open { height: 100vh; height: 100dvh; }
+.tv canvas, .tv-lyrics { cursor: ns-resize; }
+.tv.open { touch-action: none; }                 /* a vertical drag on the stage scrubs the track (BACK leaves) */
 .tv-bar { position: absolute; left: 0; right: 0; top: 0; height: 44px; padding: 0 310px; display: flex; align-items: center; gap: 14px; z-index: 3; font-size: 10px; }
 .tv-bar .pl-btn { font-weight: 700; }
 .tv-bar .tv-title { font: 700 13px var(--disp); }
@@ -206,7 +208,7 @@ em { font-style: normal; color: var(--dim); }
   .panel.left { width: auto; right: 0; bottom: auto; border: 0; padding: 8px var(--gutter); }
   .panel.left .mini, .panel.left .lower, .panel.left .coord, .panel.left .row.small, .panel.left .prog { display: none; }
   .panel.left .row:not(.small) { justify-content: flex-end; }     /* X / Y on the right: the left is BACK's */
-  .wave-strip { display: block; position: absolute; left: var(--gutter); bottom: 34px; width: calc(100% - 32px); height: 18px; pointer-events: auto; cursor: pointer; }
+  .wave-strip { display: block; position: absolute; left: var(--gutter); bottom: 34px; width: calc(100% - 32px); height: 22px; pointer-events: auto; cursor: ew-resize; touch-action: none; }
   .bar { gap: 10px; padding: 0 var(--gutter); }
   .bar .links a:not(:first-child) { display: none; }
   .bar-play { display: block; }

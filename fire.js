@@ -148,7 +148,7 @@ export function createEdgeFire(canvas, opts = {}) {
     paper: opts.paper ?? [242 / 255, 242 / 255, 242 / 255],
   };
   function resize() {
-    const dpr = Math.min(devicePixelRatio, 2);
+    const dpr = Math.min(devicePixelRatio, opts.maxDpr ?? 2);
     const r = canvas.getBoundingClientRect();
     canvas.width = Math.max(1, Math.round(r.width * dpr));
     canvas.height = Math.max(1, Math.round(r.height * dpr));

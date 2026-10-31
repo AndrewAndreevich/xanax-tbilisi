@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=12";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -61,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "11";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "12";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -127,79 +128,19 @@ $("#glyphs").innerHTML = G.map((g) => `<span class="gl ${g.cls}" style="left:${g
   + `<span class="gl bx" style="left:52%;top:50%">✚</span>`
   + `<span class="gl bx" style="left:51%;top:84%">✚</span>`;
 
-// ---------------------------------------------------------------- torn edge
-(function tear() {
-  const svg = $("#tear");
-  let white = "M0 60 ", red = "";
-  for (let x = 0; x <= 1000; x += 8) white += `L${x} ${(12 + Math.random() * 40) | 0} `;
-  white += "L1000 60Z";
-  for (const [a, b] of [[150, 300], [560, 790]]) {
-    red += `M${a} 60 `;
-    for (let x = a; x <= b; x += 10) red += `L${x} ${(Math.random() * 30) | 0} `;
-    red += `L${b} 60Z `;
-  }
-  svg.innerHTML = `<path d="${red}" fill="#ff0a0a"/><path d="${white}" fill="#f2f2f2"/>`;
-})();
-
-// ---------------------------------------------------------------- digital fire on the slide-2 edge
-// Classic Doom fire on a coarse grid: heat rises from the white edge, cools and
-// drifts sideways; the palette is stepped and dithered so it reads as pixels.
-const fireCv = $("#fire"), fireCtx = fireCv.getContext("2d");
-const FIRE_CELL = 5;
-const FIRE_PAL = [
-  [0, 0, 0, 0], [70, 0, 0, 120], [140, 0, 0, 200], [210, 0, 0, 255], [255, 10, 10, 255],
-  [255, 60, 10, 255], [255, 130, 20, 255], [255, 200, 60, 255], [255, 240, 190, 255], [242, 242, 242, 255],
-];
-let fw = 0, fh = 0, heat = null, fireImg = null, fireMax = 54, fireReach = 0;   // fireReach: flame height under the figure, css px
+// ---------------------------------------------------------------- fire on the slide-2 edge
+// Fire lab variant A at max (height 0.8, strength 1.6): white-grey flames growing out
+// of the white slide with no seam. Same shader family and palette as the burning figure.
+const fireCv = $("#fire");
+const edgeFire = createEdgeFire(fireCv, { variant: 0, strength: 1.6, maxDpr: 1 });
+let fireReach = 0;                                   // flame height above the white, css px — drives the figure's burn
 function sizeFire() {
-  const r = fireCv.getBoundingClientRect();
-  fw = Math.max(1, Math.ceil(r.width / FIRE_CELL)); fh = Math.max(1, Math.ceil(r.height / FIRE_CELL));
-  fireCv.width = fw; fireCv.height = fh;
-  heat = new Uint8Array(fw * fh);
-  fireMax = Math.min(250, Math.round(fh * 1.5 * 0.85));     // decay is 1.5/row: the hottest tongues reach ~85% of the strip
-  for (let i = 0; i < fh * 1.3; i++) burnFire(i / 30, 1);    // pre-warm: never enter the screen as an empty strip
-  fireImg = fireCtx.createImageData(fw, fh);
-}
-function burnFire(t, strength) {
-  // source row: white-hot, broken up along x so the flames come in tongues
-  for (let x = 0; x < fw; x++) {
-    const tongue = vnoise(x * 0.09, t * 1.3) * 0.75 + vnoise(x * 0.31 + 50, t * 3.1) * 0.35;
-    heat[(fh - 1) * fw + x] = Math.round(fireMax * Math.min(1, Math.max(0, (tongue - 0.35) * 1.6 * strength + 0.2)));
-  }
-  for (let y = 0; y < fh - 1; y++) {
-    for (let x = 0; x < fw; x++) {
-      const src = (y + 1) * fw + x;
-      const r = (Math.random() * 3) | 0;
-      const dst = y * fw + Math.min(fw - 1, Math.max(0, x - r + 1));
-      heat[dst] = Math.max(0, heat[src] - ((Math.random() * 4) | 0));   // avg 1.5/row: tongues reach ~30–65% of the strip
-    }
-  }
-}
-function measureReach() {
-  // average height of the flames in the columns under the figure
-  const x0 = Math.max(0, Math.floor(fig.x / FIRE_CELL)), x1 = Math.min(fw, Math.ceil((fig.x + fig.w) / FIRE_CELL));
-  const thr = fireMax * 0.3;                                  // the visibly bright part, not the faint dark-red haze
-  let sum = 0, n = 0;
-  for (let x = x0; x < x1; x++) {
-    let y = 0;
-    while (y < fh && heat[y * fw + x] < thr) y++;
-    sum += fh - y; n++;
-  }
-  const target = n ? sum / n * (fireCv.offsetHeight / fh) : 0;
-  fireReach += (target - fireReach) * 0.35;                  // a little smoothing, flames flicker
-}
-function stepFire(t, strength) {
-  if (!heat) return;
-  burnFire(t, strength);
-  measureReach();
-  const d = fireImg.data, steps = FIRE_PAL.length - 1;
-  for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) {
-    const v = heat[y * fw + x] / fireMax * steps;
-    const k = Math.min(steps, Math.floor(v + BAYER[(y & 3) * 4 + (x & 3)] - 0.5 + 0.5));
-    const c = FIRE_PAL[Math.max(0, k)], i = (y * fw + x) * 4;
-    d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = c[3];
-  }
-  fireCtx.putImageData(fireImg, 0, 0);
+  if (!edgeFire) return;
+  edgeFire.resize();
+  const over = innerHeight * 0.12;                   // the canvas reaches 12vh down into the white slide (see .fire)
+  edgeFire.state.edge = over;
+  edgeFire.state.flame = innerHeight * 0.72 * 0.8;   // lab panel is 72vh, height slider at 0.8
+  fireReach = edgeFire.state.flame * 0.5;            // where the tongues mostly stand (variant A at strength 1.6)
 }
 
 // ---------------------------------------------------------------- dithered terrain
@@ -243,25 +184,13 @@ const FRAG = /* glsl */`
   uniform vec2 uGrid;
   uniform float uA, uB, uMix, uTime, uGlitch, uSplit, uPix, uFront;
   varying vec2 vUv;
-  float bayer2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
-  float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
-  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-  float noise(vec2 p) {
-    vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
-  }
+  ${FIRE_GLSL}
   vec4 cell(float f, vec2 uv) {
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec4(0.0);
     float c = mod(f, uGrid.x), r = floor(f / uGrid.x);
     return texture2D(uAtlas, vec2((c + uv.x) / uGrid.x, 1.0 - (r + 1.0 - uv.y) / uGrid.y));
   }
   vec4 view(vec2 uv) { return mix(cell(uA, uv), cell(uB, uv), uMix); }
-  // red-paper fire: deep red -> site red -> orange -> hot white, stepped
-  vec3 firePal(float h) {
-    vec3 c = mix(vec3(0.35, 0.0, 0.0), vec3(1.0, 0.04, 0.04), smoothstep(0.0, 0.4, h));
-    c = mix(c, vec3(1.0, 0.45, 0.05), smoothstep(0.4, 0.7, h));
-    return mix(c, vec3(1.0, 0.95, 0.8), smoothstep(0.75, 1.0, h));
-  }
   void main() {
     vec2 uv = vUv;
     float band = floor(uv.y * 70.0);
@@ -286,14 +215,14 @@ const FRAG = /* glsl */`
       bool flame = d > -0.09 && d < 0.05 && (a > 0.25 || below > 0.25);
       if (d >= 0.05) {                                  // charred: sparse embers only
         float e = hash(px + floor(uTime * 9.0));
-        if (a > 0.4 && e > 0.93) { gl_FragColor = vec4(firePal(0.2 + 0.5 * e), 1.0); return; }
+        if (a > 0.4 && e > 0.93) { gl_FragColor = vec4(greyPal(0.2 + 0.5 * e), 1.0); return; }
         discard;
       }
       if (flame) {
         float h = clamp(1.0 - abs(d + 0.01) / 0.08, 0.0, 1.0) * (0.55 + 0.6 * n2);
         h = floor(h * 5.0 + t) / 5.0;                   // stepped, dithered heat
         if (h <= 0.0) discard;
-        gl_FragColor = vec4(firePal(h), 1.0);
+        gl_FragColor = vec4(greyPal(h), 1.0);
         return;
       }
     }
@@ -304,9 +233,9 @@ const FRAG = /* glsl */`
     l = clamp((l - 0.04) * 1.5, 0.0, 1.0);
     float q = floor(l * 3.0 + t) / 3.0;                       // 4 dithered tones
     vec3 col = mix(vec3(q), c * 1.25, 0.32);
-    // glow above the front: the body heats up red before it catches
+    // glow above the front: the body heats up white before it catches
     float heat = front > -0.3 ? smoothstep(-0.25, -0.05, d) : 0.0;
-    col = mix(col, vec3(1.0, 0.1, 0.05) * (0.4 + q), heat * 0.7);
+    col = mix(col, PAPER * (0.45 + 0.55 * q), heat * 0.7);
     col *= 0.82 + 0.18 * step(0.5, fract(gl_FragCoord.y / (uPix * 2.0)));   // scanlines
     gl_FragColor = vec4(col, 1.0);
   }`;
@@ -448,7 +377,7 @@ const trackEls = [...document.querySelectorAll("#tracks li")];
 const s1 = $("#s1"), s2 = $("#s2"), cross = $("#cross"), bignum = $("#bignum"), lion = $("#lion");
 const NUMS = ["2022", "+995", "6.66", "0300"];
 let p1 = 0, lastTrack = -1, glitchT = 0;
-let spin = 0, spinS = 0, fireTick = 0;
+let spin = 0, spinS = 0;
 
 function onScroll() {
   const r1 = s1.getBoundingClientRect();
@@ -587,13 +516,9 @@ function frame() {
     renderer.render(scene, camera);
     flowText(a);
   }
-  // fire on the slide-2 edge, ~30 fps, only while that edge is on screen
-  const edgeY = s2.getBoundingClientRect().top;
-  fireTick += dt;
-  if (edgeY > -20 && edgeY < innerHeight + fireCv.offsetHeight && fireTick > 1 / 30) {
-    fireTick = 0;
-    stepFire(t, 1);
-  }
+  // fire on the slide-2 edge, only while it is on screen
+  const fr = fireCv.getBoundingClientRect();
+  if (edgeFire && fr.bottom > 0 && fr.top < innerHeight) edgeFire.render(t);
   requestAnimationFrame(frame);
 }
 

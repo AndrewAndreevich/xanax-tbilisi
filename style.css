@@ -121,9 +121,8 @@ em { font-style: normal; color: var(--dim); }
 
 /* ---------- slide 2 ---------- */
 #s2 { position: relative; z-index: 6; height: 300vh; background: var(--paper); color: #111; }
-.tear { position: absolute; left: 0; top: -59px; width: 100%; height: 60px; display: block; }
-/* digital fire along the edge of the white slide */
-.fire { position: absolute; left: 0; bottom: calc(100% - 2px); width: 100%; height: 62vh; display: block; image-rendering: pixelated; pointer-events: none; z-index: 1; }
+/* edge fire (fire.js variant A): 75vh of flame above the white, 12vh overlapping into it */
+.fire { position: absolute; left: 0; bottom: calc(100% - 12vh); width: 100%; height: 87vh; display: block; pointer-events: none; z-index: 1; }
 /* white breathing room between the fire edge and the cross */
 .s2-lead { height: 30vh; }
 .s2-sticky { position: sticky; top: 0; height: 100vh; overflow: hidden; }
@@ -189,7 +188,6 @@ em { font-style: normal; color: var(--dim); }
   .head { height: auto; width: 125vw; }
   .bignum { left: 12%; top: 40%; font-size: 72px; }
   .geo { right: var(--gutter); top: 11vh; }
-  .fire { height: 50vh; }
   .lion { right: 2vw; bottom: 30vh; width: 52vw; opacity: .16; }
   #s3 { padding: 14vh var(--gutter) 70px; }
 }

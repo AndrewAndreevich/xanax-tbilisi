@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=17";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=18";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "17";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "18";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -442,8 +442,16 @@ function play(gesture) {
   if (gesture) ensureAnalyser();
   return audio.play().then(() => true, () => false);
 }
+// ext: an outside source (the SoundCloud track in the track view). While it is set the
+// HUD player — title, play/pause, progress, seek, volume — drives it instead of the site track.
+let ext = null;
+const plTitleIn = $(".pl-title-in"), SITE_TITLE = plTitleIn.innerHTML, barLabel = barPlay.lastChild;
+function setPlayerTitle(a, b) {
+  plTitleIn.innerHTML = a ? [a, b, a, b].map((x) => `<span>${x}</span>`).join("") : SITE_TITLE;
+  barLabel.textContent = " " + (a || "SILENCE IN MOTION");
+}
 function syncUI() {
-  const on = !audio.paused;
+  const on = ext ? !ext.paused : !audio.paused;
   plBtn.textContent = on ? "PAUSE" : "PLAY";
   barPlay.querySelector("b").textContent = on ? "PAUSE" : "PLAY";
   player.classList.toggle("paused", !on);
@@ -451,6 +459,7 @@ function syncUI() {
   plState.classList.toggle("wait", !on && !userPaused);
 }
 function toggle() {
+  if (ext) { ext.paused ? ext.play() : ext.pause(); return; }
   if (audio.paused) { userPaused = false; play(true).then(syncUI); }
   else { userPaused = true; audio.pause(); }
 }
@@ -459,14 +468,17 @@ barPlay.addEventListener("click", toggle);
 plMute.addEventListener("click", () => {
   vol = vol > 0.5 ? 0.5 : vol > 0 ? 0 : 1;                  // 100 → 50 → 0 → 100
   audio.volume = vol;
+  if (ext) ext.volume(vol);
   plMute.textContent = `VOL ${String(Math.round(vol * 100)).padStart(3, "0")}`;
 });
 $("#plBar").addEventListener("click", (e) => {
   const r = e.currentTarget.getBoundingClientRect();
+  if (ext) { ext.seek(clamp((e.clientX - r.left) / r.width)); return; }
   if (isFinite(audio.duration)) audio.currentTime = clamp((e.clientX - r.left) / r.width) * audio.duration;
 });
 ["play", "pause"].forEach((ev) => audio.addEventListener(ev, syncUI));
 audio.addEventListener("timeupdate", () => {
+  if (ext) return;
   plTime.textContent = `${mmss(audio.currentTime)} / ${mmss(audio.duration)}`;
   $("#plBar").style.setProperty("--t", audio.duration ? audio.currentTime / audio.duration : 0);
 });
@@ -479,10 +491,14 @@ const kick = (e) => {
 ["pointerdown", "keydown", "touchstart"].forEach((t) => addEventListener(t, kick, true));
 
 function vizFrame() {
-  if (analyser && !audio.paused) {
+  const extOn = ext && !ext.paused;
+  if (extOn) {                                       // SoundCloud gives no samples: the lively fake meter
+    const t = tv.pos;
+    vizBars.forEach((b, i) => b.style.transform = `scaleY(${Math.max(0.04, 0.5 + 0.45 * Math.sin(t * (3 + i * 0.37) + i) * Math.sin(t * 1.7 + i * 0.5))})`);
+  } else if (!ext && analyser && !audio.paused) {
     analyser.getByteFrequencyData(freq);
     for (let i = 0; i < VIZ_N; i++) vizBars[i].style.transform = `scaleY(${Math.max(0.04, freq[i + 2] / 255)})`;
-  } else if (!audio.paused) {                        // no analyser (touch): a fake but lively meter
+  } else if (!ext && !audio.paused) {                // no analyser (touch): a fake but lively meter
     const t = audio.currentTime;
     vizBars.forEach((b, i) => b.style.transform = `scaleY(${Math.max(0.04, 0.5 + 0.45 * Math.sin(t * (3 + i * 0.37) + i) * Math.sin(t * 1.7 + i * 0.5))})`);
   } else {
@@ -560,7 +576,7 @@ function sizePills() {
 // silhouette in step with playback. BACK folds it away.
 const tv = { el: null, row: null, cv: null, ctx: null, lyr: null, lines: [], streamH: 0, widget: null,
   progress: 0, pos: 0, dur: 0, img: null, meta: null, rect: { x: 0, y: 0, w: 0, h: 0 }, resume: false,
-  title: "", times: null, syncing: false, tapTimes: [] };
+  title: "", times: null, syncing: false, tapTimes: [], appear0: 0, busy: false };
 const SYNC = new URLSearchParams(location.search).has("sync");
 const timesKey = (t) => `xt-times:${t}`;
 const savedTimes = (t) => { try { return JSON.parse(localStorage.getItem(timesKey(t))); } catch { return null; } };
@@ -577,45 +593,80 @@ const loadImpostor = (name) => impostors[name] || (impostors[name] = Promise.all
   img(asset(`assets/${name}.webp`)),
 ]));
 
-function closeTrack() {
+const ease = (k) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2);
+function animateScroll(to, ms) {
+  return new Promise((done) => {
+    const from = scrollY, t0 = performance.now();
+    const step = () => {
+      const k = clamp((performance.now() - t0) / ms);
+      scrollTo({ top: from + (to - from) * ease(k), behavior: "instant" });
+      k < 1 ? requestAnimationFrame(step) : done();
+    };
+    step();
+  });
+}
+// keep the stage's middle at the middle of the screen while it grows or shrinks,
+// so it opens from (and folds back into) the line under the track
+function holdCentre(el, ms) {
+  return new Promise((done) => {
+    const t0 = performance.now();
+    const step = () => {
+      const top = scrollY + el.getBoundingClientRect().top;
+      scrollTo({ top: top + el.offsetHeight / 2 - innerHeight / 2, behavior: "instant" });
+      performance.now() - t0 < ms ? requestAnimationFrame(step) : done();
+    };
+    step();
+  });
+}
+
+async function closeTrack() {
   if (!tv.el) return;
   const { el, row } = tv;
   try { tv.widget && tv.widget.pause(); } catch {}
+  tv.el = null;
+  ext = null;
+  setPlayerTitle(null);
+  plTime.textContent = `${mmss(audio.currentTime)} / ${mmss(audio.duration)}`;
+  $("#plBar").style.setProperty("--t", audio.duration ? audio.currentTime / audio.duration : 0);
+  syncUI();
+  $("#s3").classList.add("tv-room");
   el.classList.remove("open");
   row.classList.remove("on");
-  tv.el = null;
-  setTimeout(() => el.remove(), 800);
+  await holdCentre(el, 800);
+  el.remove();
+  $("#s3").classList.remove("tv-room");
   if (tv.resume) { userPaused = false; play(true).then(syncUI); }
 }
 
 async function openTrack(row) {
   const title = row.dataset.t, cfg = PLAYABLE[title];
-  if (tv.el && tv.row === row) return;
-  closeTrack();
+  if (tv.busy || (tv.el && tv.row === row)) return;
+  tv.busy = true;
+  if (tv.el) await closeTrack();
   const el = document.createElement("div");
   el.className = "tv";
   el.innerHTML = `<div class="tv-bar"><button class="pl-btn tv-back" type="button">&#9664; BACK</button>
-    <span class="tv-title">${title}</span><span class="tv-time">00:00 / 00:00</span></div>
+    <span class="tv-title">${title}</span></div>
     <canvas></canvas><div class="tv-lyrics"></div>
-    <iframe allow="autoplay" title="${title} on SoundCloud"
-      src="https://w.soundcloud.com/player/?url=${encodeURIComponent(cfg.sc)}&color=%23ff0a0a&auto_play=true&show_user=false&show_artwork=false&visual=false"></iframe>`;
+    <iframe allow="autoplay" title="${title} on SoundCloud" tabindex="-1"
+      src="https://w.soundcloud.com/player/?url=${encodeURIComponent(cfg.sc)}&auto_play=true&show_user=false&show_artwork=false&visual=false"></iframe>`;
   row.after(el);
   row.classList.add("on");
   Object.assign(tv, { el, row, cv: el.querySelector("canvas"), lyr: el.querySelector(".tv-lyrics"), lines: [], progress: 0, pos: 0, dur: 0, widget: null, img: null,
-    title, times: cfg.times || savedTimes(title), syncing: SYNC, tapTimes: [] });
+    title, times: cfg.times || savedTimes(title), syncing: SYNC, tapTimes: [], appear0: 0 });
   tv.ctx = tv.cv.getContext("2d");
   el.querySelector(".tv-back").addEventListener("click", closeTrack);
-  // the site's own track steps aside while this one plays
+
+  // one player: the site track steps aside, the HUD now drives this one
   tv.resume = !audio.paused;
   if (tv.resume) audio.pause();
-  void el.offsetHeight;                                     // commit height 0 first, so the opening animates
-  el.classList.add("open");
-  // the stage takes the whole screen: once it has opened (the page is long enough
-  // only then), bring its top to the top of the viewport
-  el.addEventListener("transitionend", (e) => {
-    if (e.propertyName === "height" && el.classList.contains("open"))
-      scrollTo({ top: scrollY + el.getBoundingClientRect().top, behavior: "smooth" });
-  }, { once: true });
+  ext = { paused: true, play() { tv.widget?.play(); }, pause() { tv.widget?.pause(); },
+    seek(k) { tv.widget?.seekTo(k * tv.dur * 1000); }, volume(v) { tv.widget?.setVolume(v * 100); } };
+  setPlayerTitle(title, "XANAX TBILISI");
+  plTime.textContent = "00:00 / 00:00";
+  $("#plBar").style.setProperty("--t", 0);
+  syncUI();
+
   if (SYNC) {
     const box = document.createElement("div");
     box.className = "tv-sync";
@@ -623,8 +674,22 @@ async function openTrack(row) {
     el.appendChild(box);
     el.addEventListener("pointerdown", (e) => { if (!e.target.closest("button, iframe, textarea")) tapLine(); });
   }
+  const assets = Promise.all([loadImpostor(cfg.impostor), loadScApi().catch(() => null)]);
 
-  const [[meta, im]] = await Promise.all([loadImpostor(cfg.impostor), loadScApi().catch(() => null)]);
+  // 1. bring the line under the track to the middle of the screen,
+  // 2. open the stage from that line to the full screen, keeping it centred,
+  // 3. the car drives in from far away (see tvTick: appear0)
+  $("#s3").classList.add("tv-room");
+  const line = scrollY + row.getBoundingClientRect().bottom;
+  await animateScroll(line - innerHeight / 2, 520);
+  void el.offsetHeight;                                     // commit height 0 first, so the opening animates
+  el.classList.add("open");
+  await holdCentre(el, 800);
+  $("#s3").classList.remove("tv-room");
+  tv.appear0 = performance.now();
+  tv.busy = false;
+
+  const [[meta, im]] = await assets;
   if (tv.el !== el) return;
   tv.meta = meta; tv.img = im;
   // lyrics: the track's description on SoundCloud
@@ -639,11 +704,17 @@ async function openTrack(row) {
     .catch(() => tv.el === el && buildLyrics(fallback));
   if (window.SC) {
     const w = tv.widget = SC.Widget(el.querySelector("iframe"));
-    w.bind(SC.Widget.Events.READY, () => { w.play(); w.getDuration((d) => (tv.dur = d / 1000)); });
+    w.bind(SC.Widget.Events.READY, () => { w.setVolume(vol * 100); w.play(); w.getDuration((d) => (tv.dur = d / 1000)); });
+    w.bind(SC.Widget.Events.PLAY, () => { if (ext) { ext.paused = false; syncUI(); } });
+    w.bind(SC.Widget.Events.PAUSE, () => { if (ext) { ext.paused = true; syncUI(); } });
+    w.bind(SC.Widget.Events.FINISH, () => { if (ext) { ext.paused = true; syncUI(); } });
     w.bind(SC.Widget.Events.PLAY_PROGRESS, (e) => {
       tv.progress = e.relativePosition;
       tv.pos = e.currentPosition / 1000;
-      el.querySelector(".tv-time").textContent = `${mmss(e.currentPosition / 1000)} / ${mmss(tv.dur)}`;
+      if (ext && tv.el === el) {
+        plTime.textContent = `${mmss(tv.pos)} / ${mmss(tv.dur)}`;
+        $("#plBar").style.setProperty("--t", tv.progress);
+      }
     });
   }
 }
@@ -692,16 +763,23 @@ function tvTick(t) {
   if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
   const { meta, img: im, ctx } = tv;
   const n = meta.frames.length, frame = Math.floor(t * 5) % n;             // one slow turn every ~9.6 s, frames in order
-  const cw = Math.min(W * (isMobile() ? 0.7 : 0.34), H * 0.5 * meta.cellW / meta.cellH);
-  const ch = cw * meta.cellH / meta.cellW;
-  tv.rect = { x: (W - cw) / 2, y: H * 0.5 - ch / 2, w: cw, h: ch };
+  // entrance: the car comes from far away (small, high, transparent) to its place
+  const k = tv.appear0 ? ease(clamp((performance.now() - tv.appear0) / 1800)) : 0;
+  const cw0 = Math.min(W * (isMobile() ? 0.7 : 0.34), H * 0.5 * meta.cellW / meta.cellH);
+  const cw = cw0 * (0.12 + 0.88 * k), ch = cw * meta.cellH / meta.cellW;
+  const cy = H * (0.4 + 0.1 * k);
+  tv.rect = { x: (W - cw) / 2, y: cy - ch / 2, w: cw, h: ch };
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
   const c = frame % meta.cols, r = Math.floor(frame / meta.cols);
+  ctx.globalAlpha = k;
   ctx.drawImage(im, c * meta.cellW, r * meta.cellH, meta.cellW, meta.cellH, tv.rect.x, tv.rect.y, cw, ch);
-  // lyrics stream up through the stage. With line times the current line sits at the
-  // car's middle while it is sung; without them they just spread over the track (no highlight).
-  let travel, curIdx = -1;
+  ctx.globalAlpha = 1;
+  tv.lyr.style.opacity = clamp((k - 0.5) * 2);
+  // lyrics fall from the top through the stage. With line times the current line sits at
+  // the car's middle while it is sung; without them they spread over the track (no highlight).
+  // Y: how far the stream has moved; a line sits at H/2 + (Y - its y0).
+  let Y, curIdx = -1;
   const times = tv.times && tv.times.length ? tv.times : null;
   if (times) {
     const now = tv.pos;
@@ -711,17 +789,17 @@ function tvTick(t) {
     const a = tv.lines[i], b = tv.lines[Math.min(i + 1, tv.lines.length - 1)];
     const span = (times[i + 1] ?? (times[i] + 4)) - times[i];
     const f = clamp((now - times[i]) / Math.max(0.1, span));
-    const lead = now < times[0] ? -clamp((times[0] - now) / 3) : 0;           // ease in before the first line
+    const lead = now < times[0] ? clamp((times[0] - now) / 3) : 0;            // ease in before the first line
     const y0 = a ? a.y0 + ((b ? b.y0 : a.y0) - a.y0) * f : 0;
-    travel = H - 8 - H * 0.5 + y0 + lead * H * 0.4;
+    Y = y0 - lead * H * 0.4;
   } else {
-    travel = (tv.progress || 0) * (tv.streamH + H);
+    Y = -H / 2 - 20 + (tv.progress || 0) * (tv.streamH + H + 20);
   }
   const gap = isMobile() ? 6 : 12, cx = W / 2;
   const minX = isMobile() ? 6 : panelW + 10, maxX = isMobile() ? W - 6 : W - panelW - 10;
   for (const ln of tv.lines) {
-    const y = H - 8 + ln.y0 - travel;
-    if (y < -20 || y > H) { ln.p.style.visibility = "hidden"; ln.x = null; continue; }
+    const y = H / 2 + (Y - ln.y0);
+    if (y < -30 || y > H + 10) { ln.p.style.visibility = "hidden"; ln.x = null; continue; }
     ln.p.style.visibility = "visible";
     const e = carEdges(frame, y + ln.h / 2) || [cx - 6, cx + 6];
     let tx = ln.side === "L" ? e[0] - gap - ln.w : e[1] + gap;

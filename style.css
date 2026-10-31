@@ -108,7 +108,9 @@ em { font-style: normal; color: var(--dim); }
 #s1 { position: relative; z-index: 5; height: 520vh; }
 .s1-sticky { position: sticky; top: 0; height: 100vh; overflow: hidden; }
 /* each line is placed every frame by main.js along the figure's silhouette */
-.case { position: absolute; inset: 0; pointer-events: none; clip-path: inset(0 0 34px 0); }   /* text stops above the bottom bar */
+.case { position: absolute; inset: 0; pointer-events: none; clip-path: inset(0 0 34px 0);   /* text stops above the bottom bar */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14%, #000 86%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 14%, #000 86%, transparent 100%); }
 .case p {
   position: absolute; left: 0; top: 0; visibility: hidden; will-change: transform;
   font-family: var(--disp); font-weight: 700; font-size: 8.5px; line-height: 1.2;
@@ -174,12 +176,15 @@ em { font-style: normal; color: var(--dim); }
 .tv-bar { position: absolute; left: 0; right: 0; top: 0; height: 44px; padding: 0 310px; display: flex; align-items: center; gap: 14px; z-index: 3; font-size: 10px; }
 .tv-bar .pl-btn { font-weight: 700; }
 .tv-bar .tv-title { font: 700 13px var(--disp); }
-.tv-bar .tv-time { margin-left: auto; color: var(--dim); font-variant-numeric: tabular-nums; }
-.tv canvas { position: absolute; left: 0; top: 44px; width: 100%; height: calc(100% - 98px); display: block; }
-.tv-lyrics { position: absolute; left: 0; right: 0; top: 44px; bottom: 54px; overflow: hidden; pointer-events: none; z-index: 2; }
+.tv canvas { position: absolute; left: 0; top: 44px; width: 100%; height: calc(100% - 74px); display: block; }
+.tv-lyrics { position: absolute; left: 0; right: 0; top: 44px; bottom: 30px; overflow: hidden; pointer-events: none; z-index: 2;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18%, #000 82%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 18%, #000 82%, transparent 100%); }
 .tv-lyrics p { position: absolute; left: 0; top: 0; visibility: hidden; font: 700 9.5px/1.2 var(--disp); white-space: nowrap; color: #f4f4f4; will-change: transform; text-transform: uppercase; }
 .tv-lyrics p.cur { color: var(--red); }
-.tv iframe { position: absolute; left: 310px; right: 310px; bottom: 34px; width: calc(100% - 620px); height: 20px; border: 0; z-index: 3; }
+/* the SoundCloud widget only plays; the HUD player is the one control */
+.tv iframe { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; border: 0; opacity: 0; pointer-events: none; }
+#s3.tv-room { padding-bottom: 100vh; }             /* scroll room so the opening line can sit mid-screen */
 .tv-sync { position: absolute; left: 50%; top: 52px; transform: translateX(-50%); z-index: 4; color: var(--red); font-size: 10px; font-weight: 700; }
 .tv-sync textarea { display: block; width: min(80vw, 420px); height: 70px; margin-top: 6px; font: 10px var(--mono); background: #111; color: #eee; border: 1px solid #444; }
 .exit-links { display: flex; flex-wrap: wrap; gap: 10px; margin: 40px 0; }
@@ -211,7 +216,6 @@ em { font-style: normal; color: var(--dim); }
   .bignum { left: 12%; top: 40%; font-size: 72px; }
   .geo { right: var(--gutter); top: 11vh; }
   .tv-bar { padding: 0 var(--gutter); }
-  .tv iframe { left: var(--gutter); right: var(--gutter); width: calc(100% - 32px); }
   .lion { right: 2vw; bottom: 30vh; width: 52vw; opacity: .16; }
   #s3 { padding: 14vh var(--gutter) 70px; }
 }

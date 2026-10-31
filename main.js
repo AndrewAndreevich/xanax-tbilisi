@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=12";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=13";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "12";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "13";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -215,14 +215,14 @@ const FRAG = /* glsl */`
       bool flame = d > -0.09 && d < 0.05 && (a > 0.25 || below > 0.25);
       if (d >= 0.05) {                                  // charred: sparse embers only
         float e = hash(px + floor(uTime * 9.0));
-        if (a > 0.4 && e > 0.93) { gl_FragColor = vec4(greyPal(0.2 + 0.5 * e), 1.0); return; }
+        if (a > 0.4 && e > 0.93) { gl_FragColor = vec4(firePal(0.2 + 0.5 * e), 1.0); return; }
         discard;
       }
       if (flame) {
         float h = clamp(1.0 - abs(d + 0.01) / 0.08, 0.0, 1.0) * (0.55 + 0.6 * n2);
         h = floor(h * 5.0 + t) / 5.0;                   // stepped, dithered heat
         if (h <= 0.0) discard;
-        gl_FragColor = vec4(greyPal(h), 1.0);
+        gl_FragColor = vec4(firePal(h), 1.0);
         return;
       }
     }
@@ -233,9 +233,9 @@ const FRAG = /* glsl */`
     l = clamp((l - 0.04) * 1.5, 0.0, 1.0);
     float q = floor(l * 3.0 + t) / 3.0;                       // 4 dithered tones
     vec3 col = mix(vec3(q), c * 1.25, 0.32);
-    // glow above the front: the body heats up white before it catches
+    // glow above the front: the body heats up red before it catches
     float heat = front > -0.3 ? smoothstep(-0.25, -0.05, d) : 0.0;
-    col = mix(col, PAPER * (0.45 + 0.55 * q), heat * 0.7);
+    col = mix(col, vec3(1.0, 0.1, 0.05) * (0.4 + q), heat * 0.7);
     col *= 0.82 + 0.18 * step(0.5, fract(gl_FragCoord.y / (uPix * 2.0)));   // scanlines
     gl_FragColor = vec4(col, 1.0);
   }`;
@@ -358,6 +358,7 @@ function resize() {
   drawTerrain($("#terrainDark"), "#2b2b2b", 3.1, 1.25);
   drawTerrain($("#terrainLight"), "#bdbdbd", 7.7, 1.5);
   sizeFire();
+  sizePills();
 }
 addEventListener("resize", resize);
 
@@ -486,10 +487,84 @@ function vizFrame() {
 vizFrame();
 
 $("#enter").addEventListener("click", () => {
+  askGyro();
   userPaused = false;
   play(true).then(syncUI);
   $("#loader").classList.add("done");
 });
+
+// ---------------------------------------------------------------- slide 3: Xanax bars pattern
+// A staggered grid of 2 mg "bars" drifting and spinning. On a phone the tilt sets
+// the spin direction and speed (left/right) and the drift (both axes); on a desktop
+// the mouse does the same. Drawn at half resolution for the pixel look.
+const pillCv = $("#pills"), pillCtx = pillCv.getContext("2d");
+let PILL = null;
+const makePill = () => {                                 // one sprite, reused for every bar; built after fonts load
+  const c = document.createElement("canvas"), w = 120, h = 30;
+  c.width = w; c.height = h;
+  const g = c.getContext("2d");
+  const r = h / 2;
+  g.fillStyle = "#f2f2f2";
+  g.beginPath(); g.moveTo(r, 0); g.lineTo(w - r, 0); g.arc(w - r, r, r, -Math.PI / 2, Math.PI / 2);
+  g.lineTo(r, h); g.arc(r, r, r, Math.PI / 2, Math.PI * 1.5); g.fill();
+  g.fillStyle = "#9a9a9a";                               // three score lines: four breakable segments
+  for (let i = 1; i < 4; i++) g.fillRect(Math.round(w * i / 4) - 1, 3, 2, h - 6);
+  g.font = "700 13px 'Chakra Petch', 'IBM Plex Mono', monospace";   // the imprint runs across the scores
+  g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillText("X A N A X", w / 2, r + 1);
+  return c;
+};
+const tilt = { x: 0, y: 0, tx: 0, ty: 0 };              // -1..1, smoothed
+let pillSpin = 0, pillDX = 0, pillDY = 0, gyroOn = false;
+addEventListener("deviceorientation", (e) => {
+  if (e.gamma == null) return;
+  gyroOn = true;
+  tilt.tx = clamp(e.gamma / 35, -1, 1);                 // left / right
+  tilt.ty = clamp(((e.beta ?? 45) - 45) / 35, -1, 1);   // forward / back from a natural reading angle
+});
+addEventListener("pointermove", (e) => {
+  if (gyroOn) return;
+  tilt.tx = e.clientX / innerWidth * 2 - 1;
+  tilt.ty = e.clientY / innerHeight * 2 - 1;
+});
+// iOS only grants motion sensors from a user gesture: ask on ENTER
+function askGyro() {
+  const D = window.DeviceOrientationEvent;
+  if (D && typeof D.requestPermission === "function") D.requestPermission().catch(() => {});
+}
+function drawPills(dt) {
+  PILL ||= makePill();
+  const w = pillCv.width, h = pillCv.height;
+  tilt.x += (tilt.tx - tilt.x) * Math.min(1, dt * 4);
+  tilt.y += (tilt.ty - tilt.y) * Math.min(1, dt * 4);
+  const spinRate = 0.25 + tilt.x * 1.6;                 // tilt left -> spin one way, right -> the other
+  pillSpin += spinRate * dt;
+  pillDX += (8 + tilt.x * 60) * dt;
+  pillDY += (-14 + tilt.y * 60) * dt;
+  pillCtx.clearRect(0, 0, w, h);
+  const sx = 92, sy = 54;                                // grid step, in canvas px (half resolution)
+  const ox = ((pillDX % sx) + sx) % sx, oy = ((pillDY % sy) + sy) % sy;
+  for (let gy = -sy + oy; gy < h + sy; gy += sy) {
+    const rr = Math.round((gy - pillDY) / sy);            // stable ids: position in the unscrolled grid
+    const stag = rr & 1 ? sx / 2 : 0;
+    for (let gx = -sx + ox + stag; gx < w + sx; gx += sx) {
+      const cc = Math.round((gx - stag - pillDX) / sx);
+      const seed = Math.sin(cc * 12.9898 + rr * 78.233) * 43758.5453;
+      const base = (seed - Math.floor(seed)) * Math.PI * 2;
+      const dir = (rr + cc) & 1 ? 1 : -1;                // neighbours counter-rotate
+      pillCtx.save();
+      pillCtx.translate(gx, gy);
+      pillCtx.rotate(base + pillSpin * dir);
+      pillCtx.drawImage(PILL, -PILL.width / 4, -PILL.height / 4, PILL.width / 2, PILL.height / 2);
+      pillCtx.restore();
+    }
+  }
+}
+function sizePills() {
+  const r = pillCv.getBoundingClientRect();
+  pillCv.width = Math.max(1, Math.round(r.width / 2));
+  pillCv.height = Math.max(1, Math.round(r.height / 2));
+}
 
 // ---------------------------------------------------------------- loop
 const clock = new THREE.Clock();
@@ -516,6 +591,9 @@ function frame() {
     renderer.render(scene, camera);
     flowText(a);
   }
+  // Xanax bars on slide 3, only while it is on screen
+  const pr = pillCv.getBoundingClientRect();
+  if (pr.bottom > 0 && pr.top < innerHeight) drawPills(dt);
   // fire on the slide-2 edge, only while it is on screen
   const fr = fireCv.getBoundingClientRect();
   if (edgeFire && fr.bottom > 0 && fr.top < innerHeight) edgeFire.render(t);

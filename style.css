@@ -144,12 +144,10 @@ em { font-style: normal; color: var(--dim); }
 .cross i { position: absolute; background: var(--red); display: block; }
 .cross .bar-v { left: 43%; width: 14%; top: -30%; height: 130%; }
 .cross .bar-h { top: 43%; height: 14%; left: 3%; width: 94%; }
-.cross .mini-x { width: 9%; aspect-ratio: 1; background: none; opacity: var(--mx, 0); }
-.cross .mini-x::before, .cross .mini-x::after { content: ""; position: absolute; background: var(--red); }
-.cross .mini-x::before { left: 40%; width: 20%; top: 0; height: 100%; }
-.cross .mini-x::after { top: 40%; height: 20%; left: 0; width: 100%; }
-.cross .q1 { left: 17%; top: 17%; } .cross .q2 { right: 17%; top: 17%; }
-.cross .q3 { left: 17%; bottom: 17%; } .cross .q4 { right: 17%; bottom: 17%; }
+.cross .mini-x { position: absolute; height: auto; fill: var(--red); opacity: var(--mx, 0); overflow: visible; transform: translate(-50%, -50%); }
+/* the four crooked crosses from the album cover (tools/build_crosses.py), one in each quarter */
+.cross .q1 { left: 21.5%; top: 21.5%; } .cross .q2 { left: 78.5%; top: 21.5%; }
+.cross .q3 { left: 21.5%; top: 78.5%; } .cross .q4 { left: 78.5%; top: 78.5%; }
 .head { position: absolute; left: 50%; bottom: 0; height: 86vh; aspect-ratio: 1; image-rendering: pixelated; transform: translate(-50%, var(--hy, 0)); }
 .bignum {
   position: absolute; left: 27%; top: 52%; transform: translate(-50%, -50%) rotate(-90deg);

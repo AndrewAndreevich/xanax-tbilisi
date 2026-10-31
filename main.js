@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=52";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=53";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "52";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "53";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -1295,7 +1295,7 @@ function tvTick(t) {
         c.sx += c.vx * h; c.sy += c.vy * h;
       }
       c.cxp = P[i] + c.sx; c.cyp = cyLine + c.sy;
-      c.el.style.transform = `translate3d(${(c.cxp - c.w / 2).toFixed(1)}px, ${(c.cyp - ln.h / 2).toFixed(1)}px, 0)`;
+      c.el.style.transform = `translate3d(${(c.cxp - c.w / 2).toFixed(1)}px, ${(c.cyp - ln.h / 2).toFixed(1)}px, 0)${c.lit ? " scale(1.25)" : ""}`;
     });
     if (!order.length) continue;
     // rope letters: verlet with gravity, fixed spacing, pushed out of the car
@@ -1312,6 +1312,13 @@ function tvTick(t) {
     for (let sIt = 0; sIt < steps; sIt++) {
       for (const i of order) {
         const c = ln.chars[i];
+        if (c.lit) {
+          // a lit word straightens: its letters spring back to their place in the straight line
+          // (even over the car) and hold there, stiff, until the word goes white and drops again
+          const k = Math.min(1, h * 16);
+          c.nx += (P[i] - c.nx) * k; c.ny += (cyLine - c.ny) * k; c.ox = c.nx; c.oy = c.ny;
+          continue;
+        }
         const vx = (c.nx - c.ox) * 0.94, vy = (c.ny - c.oy) * 0.94;   // swings die out quickly
         c.ox = c.nx; c.oy = c.ny;
         c.nx += vx; c.ny += vy + G * h * h;
@@ -1323,6 +1330,7 @@ function tvTick(t) {
         for (const i of order) {
           const c = ln.chars[i];
           const rest = pI >= 0 && pI < n ? Math.abs(P[i] - P[pI]) : c.w / 2 + 1;
+          if (c.lit) { dX = L ? 1 : -1; dY = 0; px0 = c.nx; py0 = c.ny; pI = i; continue; }
           c.nx += (px0 + dX * rest - c.nx) * KB + (P[i] - c.nx) * KM;
           c.ny += (py0 + dY * rest - c.ny) * KB + (cyLine - c.ny) * KM;
           const sd = Math.hypot(c.nx - px0, c.ny - py0) || 1;
@@ -1338,6 +1346,7 @@ function tvTick(t) {
         let prevC = null, prevI = anchorIdx, prevAng = out;      // the first link hangs from the fixed anchor
         for (const i of order) {
           const c = ln.chars[i];
+          if (c.lit) { prevAng = out; prevC = c; prevI = i; continue; }   // a lit letter is pinned: the rest hangs from it
           const rest = prevI >= 0 && prevI < n ? Math.abs(P[i] - P[prevI]) : c.w / 2 + 1;
           const ax = prevC ? prevC.nx : anchor.x, ay = prevC ? prevC.ny : anchor.y;
           // one-sided chain from the anchor outwards: length, then out of the car, and the
@@ -1347,9 +1356,7 @@ function tvTick(t) {
           const push = carPush(c.nx, c.ny, L);
           if (push) { c.nx = push[0]; c.ny = push[1]; }
           let ang = Math.atan2(c.ny - ay, c.nx - ax);
-          // inside a lit word the joints lock: the word hangs as one stiff piece
-          const jl = c.lit && prevC && prevC.wi === c.wi ? 0 : JOINT;
-          ang = prevAng + Math.max(-jl, Math.min(jl, wrap(ang - prevAng)));
+          ang = prevAng + Math.max(-JOINT, Math.min(JOINT, wrap(ang - prevAng)));
           ang = out + Math.max(-TOTAL, Math.min(TOTAL, wrap(ang - out)));
           c.nx = ax + Math.cos(ang) * rest; c.ny = ay + Math.sin(ang) * rest;
           if (c.ny > H + 40) c.ny = H + 40;
@@ -1367,8 +1374,8 @@ function tvTick(t) {
       let ax, ay;
       if (L) { ax = c.nx - last.x; ay = c.ny - last.y; }
       else { ax = last.x - c.nx; ay = last.y - c.ny; }
-      const rot = Math.atan2(ay, ax);
-      c.el.style.transform = `translate3d(${(c.nx - c.w / 2).toFixed(1)}px, ${(c.ny - ln.h / 2).toFixed(1)}px, 0) rotate(${rot.toFixed(3)}rad)`;
+      const rot = c.lit ? 0 : Math.atan2(ay, ax);
+      c.el.style.transform = `translate3d(${(c.nx - c.w / 2).toFixed(1)}px, ${(c.ny - ln.h / 2).toFixed(1)}px, 0) rotate(${rot.toFixed(3)}rad)${c.lit ? " scale(1.25)" : ""}`;
       last = { x: c.nx, y: c.ny };
     });
   }

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=39";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=41";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "39";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "41";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -825,6 +825,7 @@ async function closeTrack() {
   await holdCentre(el, false);
   el.remove();
   $("#s3").classList.remove("tv-room");
+  document.body.classList.remove("tv-mode");                // the page scrolls again
   if (tv.resume) { userPaused = false; play(true).then(syncUI); }
 }
 
@@ -851,6 +852,7 @@ async function openTrack(row) {
   if (tv.busy || tv.leaving || (tv.el && tv.row === row)) return;
   if (tv.el) return switchTrack(row);
   tv.busy = true;
+  document.body.classList.add("tv-mode");                   // player mode: the HUD playlist shows, the page stops scrolling
   const el = document.createElement("div");
   el.className = "tv";
   el.innerHTML = `<div class="tv-bar"><button class="pl-btn tv-back" type="button">&#9664; BACK</button>
@@ -1068,6 +1070,40 @@ function tapLine() {
   navigator.clipboard?.writeText(json).catch(() => {});
 }
 addEventListener("keydown", (e) => { if (SYNC && tv.el && e.code === "Space") { e.preventDefault(); tapLine(); } });
+
+// player mode: the page does not scroll — the wheel, a swipe and the arrow keys wind the
+// track (and its lyrics) back and forth instead; BACK gives the page its scroll again
+const inPlayer = () => document.body.classList.contains("tv-mode");
+let wheelEnd = null;
+function windBy(dk) {
+  if (!ext || !tv.el || tv.busy || tv.leaving || !(tv.dur > 0)) return;
+  if (!scrub) scrub = { last: 0 };
+  scrubTo(Math.min(tv.progress + dk, 1 - 1 / tv.dur));    // winding stops a second short of the end
+  clearTimeout(wheelEnd);
+  wheelEnd = setTimeout(() => { if (scrub) { scrubTo(tv.progress, true); scrub = null; } }, 200);
+}
+addEventListener("wheel", (e) => {
+  if (!inPlayer()) return;
+  e.preventDefault();
+  const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * innerHeight : e.deltaY;
+  windBy(dy / 100 * 3 / (tv.dur || 1));                      // one wheel notch = 3 s of the track
+}, { passive: false });
+addEventListener("touchmove", (e) => { if (inPlayer()) e.preventDefault(); }, { passive: false });   // the stage's own drag winds the track
+addEventListener("keydown", (e) => {
+  if (!inPlayer() || e.target.closest?.("input, textarea")) return;
+  const step = { ArrowDown: 5, ArrowUp: -5, PageDown: 20, PageUp: -20 }[e.key] / (tv.dur || 1);   // seconds
+  if (step) { e.preventDefault(); windBy(step); return; }   // NaN for other keys
+  if (e.key === "Home" || e.key === "End") { e.preventDefault(); windBy(e.key === "Home" ? -1 : 1); return; }
+  if (e.code === "Space" && !SYNC && !e.target.closest?.("button")) { e.preventDefault(); toggle(); }
+  if (e.key === "ArrowRight") stepTrack(1);
+  if (e.key === "ArrowLeft") stepTrack(-1);
+});
+// the bottom bar's section links leave the player first
+document.querySelectorAll(".bar .links a").forEach((a) => a.addEventListener("click", (e) => {
+  if (!inPlayer()) return;
+  e.preventDefault();
+  closeTrack().then(() => document.querySelector(a.getAttribute("href"))?.scrollIntoView({ behavior: "smooth" }));
+}));
 
 // the silhouette row r, blended between the current and the next frame of the turn so it
 // changes smoothly instead of jumping 5 times a second (tv.fa, tv.fb, tv.ff set by tvTick)

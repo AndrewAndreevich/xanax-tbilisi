@@ -72,6 +72,9 @@ em { font-style: normal; color: var(--dim); }
 #tracks li:hover span:first-child { text-decoration: underline; }
 #tracks li.on { background: #fff; color: #000; }
 #tracks li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the playlist shows only in player mode (a track open) */
+#tracks, .total { opacity: 0; visibility: hidden; transition: opacity .4s, visibility .4s; }
+.tv-mode #tracks, .tv-mode .total { opacity: 1; visibility: visible; }
 .total { order: 5; display: flex; justify-content: space-between; font-size: 9px; border-top: 1px solid rgba(255,255,255,.2); padding-top: 3px; }
 
 /* audio player — lives in the right panel, compact button in the bar on phones */

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=33";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=34";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "33";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "34";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -646,9 +646,13 @@ function drawPills(dt) {
   const pw = 96 * dpr, ph = pw * pillImg.height / pillImg.width;
   const sx = 150 * dpr, sy = 74 * dpr;                  // grid step
   const ox = ((pillDX % sx) + sx) % sx, oy = ((pillDY % sy) + sy) % sy;
+  // the canvas starts 40vh above slide 3: paper down to 48vh, black from 115vh; the bars are
+  // stronger on the paper and fade to the faint pattern over the black
+  const vh = innerHeight * dpr / 100;
   for (let gy = -sy + oy, row = 0; gy < h + sy; gy += sy, row++) {
     const rr = Math.round((gy - pillDY) / sy);
     const stag = rr & 1 ? sx / 2 : 0;
+    pillCtx.globalAlpha = 0.3 + 0.5 * (1 - clamp((gy - 48 * vh) / (67 * vh)));
     for (let gx = -sx + ox + stag; gx < w + sx; gx += sx) {
       pillCtx.save();
       pillCtx.translate(gx, gy);
@@ -657,6 +661,7 @@ function drawPills(dt) {
       pillCtx.restore();
     }
   }
+  pillCtx.globalAlpha = 1;
 }
 function sizePills() {
   const r = pillCv.getBoundingClientRect(), dpr = Math.min(devicePixelRatio, 2);

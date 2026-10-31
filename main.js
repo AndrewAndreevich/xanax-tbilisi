@@ -61,7 +61,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "9";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "10";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -150,21 +150,21 @@ const FIRE_PAL = [
   [0, 0, 0, 0], [70, 0, 0, 120], [140, 0, 0, 200], [210, 0, 0, 255], [255, 10, 10, 255],
   [255, 60, 10, 255], [255, 130, 20, 255], [255, 200, 60, 255], [255, 240, 190, 255], [242, 242, 242, 255],
 ];
-const FIRE_MAX = 54;
-let fw = 0, fh = 0, heat = null, fireImg = null;
+let fw = 0, fh = 0, heat = null, fireImg = null, fireMax = 54, fireReach = 0;   // fireReach: flame height under the figure, css px
 function sizeFire() {
   const r = fireCv.getBoundingClientRect();
   fw = Math.max(1, Math.ceil(r.width / FIRE_CELL)); fh = Math.max(1, Math.ceil(r.height / FIRE_CELL));
   fireCv.width = fw; fireCv.height = fh;
   heat = new Uint8Array(fw * fh);
+  fireMax = Math.min(250, Math.round(fh * 1.5 * 0.85));     // decay is 1.5/row: the hottest tongues reach ~85% of the strip
+  for (let i = 0; i < fh * 1.3; i++) burnFire(i / 30, 1);    // pre-warm: never enter the screen as an empty strip
   fireImg = fireCtx.createImageData(fw, fh);
 }
-function stepFire(t, strength) {
-  if (!heat) return;
+function burnFire(t, strength) {
   // source row: white-hot, broken up along x so the flames come in tongues
   for (let x = 0; x < fw; x++) {
     const tongue = vnoise(x * 0.09, t * 1.3) * 0.75 + vnoise(x * 0.31 + 50, t * 3.1) * 0.35;
-    heat[(fh - 1) * fw + x] = Math.round(FIRE_MAX * Math.min(1, Math.max(0, (tongue - 0.35) * 1.6 * strength + 0.2)));
+    heat[(fh - 1) * fw + x] = Math.round(fireMax * Math.min(1, Math.max(0, (tongue - 0.35) * 1.6 * strength + 0.2)));
   }
   for (let y = 0; y < fh - 1; y++) {
     for (let x = 0; x < fw; x++) {
@@ -174,9 +174,27 @@ function stepFire(t, strength) {
       heat[dst] = Math.max(0, heat[src] - ((Math.random() * 4) | 0));   // avg 1.5/row: tongues reach ~30–65% of the strip
     }
   }
+}
+function measureReach() {
+  // average height of the flames in the columns under the figure
+  const x0 = Math.max(0, Math.floor(fig.x / FIRE_CELL)), x1 = Math.min(fw, Math.ceil((fig.x + fig.w) / FIRE_CELL));
+  const thr = fireMax * 0.3;                                  // the visibly bright part, not the faint dark-red haze
+  let sum = 0, n = 0;
+  for (let x = x0; x < x1; x++) {
+    let y = 0;
+    while (y < fh && heat[y * fw + x] < thr) y++;
+    sum += fh - y; n++;
+  }
+  const target = n ? sum / n * (fireCv.offsetHeight / fh) : 0;
+  fireReach += (target - fireReach) * 0.35;                  // a little smoothing, flames flicker
+}
+function stepFire(t, strength) {
+  if (!heat) return;
+  burnFire(t, strength);
+  measureReach();
   const d = fireImg.data, steps = FIRE_PAL.length - 1;
   for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) {
-    const v = heat[y * fw + x] / FIRE_MAX * steps;
+    const v = heat[y * fw + x] / fireMax * steps;
     const k = Math.min(steps, Math.floor(v + BAYER[(y & 3) * 4 + (x & 3)] - 0.5 + 0.5));
     const c = FIRE_PAL[Math.max(0, k)], i = (y * fw + x) * 4;
     d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = c[3];
@@ -223,7 +241,7 @@ const VERT = /* glsl */`
 const FRAG = /* glsl */`
   uniform sampler2D uAtlas;
   uniform vec2 uGrid;
-  uniform float uA, uB, uMix, uTime, uGlitch, uSplit, uPix, uBurn;
+  uniform float uA, uB, uMix, uTime, uGlitch, uSplit, uPix, uFront;
   varying vec2 vUv;
   float bayer2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
   float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
@@ -256,12 +274,12 @@ const FRAG = /* glsl */`
     vec4 cb = view(uv - vec2(uSplit, 0.0));
     float a = max(cg.a, max(cr.a, cb.a));
 
-    // burn front climbing from the feet (uv.y = 0) to above the head
+    // burn front = where the edge fire's tongues are on screen, in uv (0 = feet, 1 = head)
     float n = noise(vec2(uv.x * 14.0, uv.y * 22.0 - uTime * 4.0));
     float n2 = noise(vec2(uv.x * 30.0 + 7.0, uv.y * 9.0 - uTime * 6.5));
-    float front = uBurn * 1.3 - 0.12;
+    float front = uFront;
     float d = front - uv.y + (n - 0.5) * 0.14;          // > 0: already burnt
-    if (uBurn > 0.001) {
+    if (front > -0.3) {
       // flame tongues: silhouette pixels just below this point, licking upward
       float lick = 0.03 + 0.09 * n2;
       float below = view(uv - vec2((n - 0.5) * 0.02, lick)).a;
@@ -287,7 +305,7 @@ const FRAG = /* glsl */`
     float q = floor(l * 3.0 + t) / 3.0;                       // 4 dithered tones
     vec3 col = mix(vec3(q), c * 1.25, 0.32);
     // glow above the front: the body heats up red before it catches
-    float heat = uBurn > 0.001 ? smoothstep(-0.25, -0.05, d) : 0.0;
+    float heat = front > -0.3 ? smoothstep(-0.25, -0.05, d) : 0.0;
     col = mix(col, vec3(1.0, 0.1, 0.05) * (0.4 + q), heat * 0.7);
     col *= 0.82 + 0.18 * step(0.5, fract(gl_FragCoord.y / (uPix * 2.0)));   // scanlines
     gl_FragColor = vec4(col, 1.0);
@@ -303,7 +321,7 @@ const figMat = new THREE.ShaderMaterial({
   uniforms: {
     uAtlas: { value: null }, uGrid: { value: new THREE.Vector2(8, 2) },
     uA: { value: 0 }, uB: { value: 1 }, uMix: { value: 0 }, uTime: { value: 0 },
-    uGlitch: { value: 0 }, uSplit: { value: 0.004 }, uPix: { value: 2 }, uBurn: { value: 0 },
+    uGlitch: { value: 0 }, uSplit: { value: 0.004 }, uPix: { value: 2 }, uFront: { value: -1 },
   },
 });
 const figQuad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), figMat);
@@ -430,7 +448,7 @@ const trackEls = [...document.querySelectorAll("#tracks li")];
 const s1 = $("#s1"), s2 = $("#s2"), cross = $("#cross"), bignum = $("#bignum"), lion = $("#lion");
 const NUMS = ["2022", "+995", "6.66", "0300"];
 let p1 = 0, lastTrack = -1, glitchT = 0;
-let spin = 0, spinS = 0, burn = 0, burnS = 0, fireTick = 0;
+let spin = 0, spinS = 0, fireTick = 0;
 
 function onScroll() {
   const r1 = s1.getBoundingClientRect();
@@ -439,10 +457,9 @@ function onScroll() {
   const ti = Math.min(TRACKS.length - 1, Math.floor(p1 * TRACKS.length));
   if (ti !== lastTrack) { trackEls[lastTrack]?.classList.remove("on"); trackEls[ti].classList.add("on"); lastTrack = ti; glitchT = 0.35; }
 
-  // turn until slide 2 has fully covered the figure; burn during the last stretch before that
+  // turn until slide 2 has fully covered the figure
   const cover = s2.offsetTop;                                  // scrollY at which slide 2 fills the screen
   spin = clamp(scrollY / cover);
-  burn = clamp((scrollY - (cover - innerHeight * 1.75)) / (innerHeight * 1.35));
   const r2 = s2.getBoundingClientRect();
   const p2 = clamp(-r2.top / (r2.height - innerHeight));
   const enter = clamp(1 - r2.top / innerHeight);              // 0 → 1 while slide 2 rises
@@ -555,9 +572,10 @@ function frame() {
     const n = BODY.frames.length;
     // scroll alone drives the turn: frames go 0, 1, 2 … 15, 0 in order, one at a time
     spinS += (spin - spinS) * Math.min(1, dt * 7);
-    burnS += (burn - burnS) * Math.min(1, dt * 5);
     const a = Math.floor(spinS * 2.6 * n) % n;
-    figMat.uniforms.uBurn.value = burnS;
+    // the figure burns exactly where the edge fire's flames actually are under him
+    const flameTop = s2.getBoundingClientRect().top - fireReach;
+    figMat.uniforms.uFront.value = (fig.y + fig.h - flameTop) / fig.h;
     glitchT = Math.max(0, glitchT - dt);
     const spike = Math.random() < 0.012 ? 0.3 : 0;
     figMat.uniforms.uA.value = a;
@@ -574,7 +592,7 @@ function frame() {
   fireTick += dt;
   if (edgeY > -20 && edgeY < innerHeight + fireCv.offsetHeight && fireTick > 1 / 30) {
     fireTick = 0;
-    stepFire(t, 0.6 + 0.5 * burnS);                          // flames grow while Arseny burns
+    stepFire(t, 1);
   }
   requestAnimationFrame(frame);
 }

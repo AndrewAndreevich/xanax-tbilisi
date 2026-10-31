@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=20";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=21";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "20";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "21";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -829,6 +829,22 @@ function carEdges(frame, y) {
   return l > rr ? null : [rect.x + l * rect.w, rect.x + rr * rect.w];
 }
 
+// push a point out of the car (exact silhouette row, no widening): onto the roof line
+// when that is the shortest way out, otherwise sideways off the nearer flank
+function carPush(frame, x, y) {
+  const { meta, rect } = tv, prof = meta.frames[frame].profile, n = prof.length;
+  const r = Math.floor((y - rect.y) / rect.h * n);
+  if (r < 0 || r >= n || !prof[r]) return null;
+  const l = rect.x + prof[r][0] * rect.w, rr = rect.x + prof[r][1] * rect.w;
+  if (x <= l || x >= rr) return null;
+  let top = r;
+  while (top > 0 && prof[top - 1] && rect.x + prof[top - 1][0] * rect.w < x && rect.x + prof[top - 1][1] * rect.w > x) top--;
+  const yTop = rect.y + top / n * rect.h - 4;
+  const dl = x - l, dr = rr - x, du = y - yTop;
+  if (du <= dl && du <= dr) return [x, yTop];
+  return dl < dr ? [l - 1, y] : [rr + 1, y];
+}
+
 function tvTick(t) {
   if (!tv.el || !tv.img) return;
   const nowMs = performance.now();
@@ -880,15 +896,15 @@ function tvTick(t) {
   tv.wob = Math.min(16, (tv.wob || 0) * Math.pow(0.08, dt) + Math.abs(vel) * dt * 0.6);
   const gap = isMobile() ? 6 : 12, cx = W / 2;
   const minX = isMobile() ? 6 : panelW + 10, maxX = isMobile() ? W - 6 : W - panelW - 10;
-  // a line that does not fit beside the car bends softly round it: past the start of the
-  // bend its letters ease towards the car's edge (never over it) and the rest of the line
-  // flows along the car — up above the car's middle, down below it
-  const R = isMobile() ? 22 : 34, carMid = tv.rect.y + tv.rect.h / 2;
+  // the part of a line that does not fit beside the car hangs off the car's edge like a
+  // rope of letters: it has weight, swings when the text moves, lies on the car above its
+  // middle and dangles below it — the letters never pass through the car
+  const G = 1500, steps = 2;
   for (const ln of tv.lines) {
     const y = H / 2 + (tv.Ys - ln.y0);
     if (y < -40 || y > H + 20) {
       ln.p.style.visibility = "hidden"; ln.x = null;
-      for (const c of ln.chars) c.sx = undefined;
+      for (const c of ln.chars) { c.sx = undefined; c.rope = false; }
       continue;
     }
     ln.p.style.visibility = "visible";
@@ -898,35 +914,81 @@ function tvTick(t) {
     tx = Math.max(minX, Math.min(maxX - ln.w, tx));
     ln.x = ln.x == null ? tx : ln.x + (tx - ln.x) * Math.min(1, dt * 12);
     const B = e ? (L ? e[0] - gap : e[1] + gap) : null;          // where the car begins for this line
-    const dir = y + ln.h / 2 < carMid ? -1 : 1;
+    const cyLine = y + ln.h / 2, n = ln.chars.length;
+    const P = ln.chars.map((c) => ln.x + c.x + c.w / 2);         // straight letter centres (x)
+    // which letters run into the car: a tail on the car side of the line
+    let j = L ? n : 0;
+    if (B != null) {
+      if (L) { j = P.findIndex((x) => x > B); if (j < 0) j = n; }
+      else { j = 0; while (j < n && P[j] < B) j++; }
+    }
+    const isRope = (i) => (L ? i >= j : i < j);
+    const order = [];                                             // rope letters from the anchor outwards
+    if (L) for (let i = j; i < n; i++) order.push(i); else for (let i = j - 1; i >= 0; i--) order.push(i);
+    const anchorIdx = L ? j - 1 : j;
+    const anchor = anchorIdx >= 0 && anchorIdx < n ? { x: P[anchorIdx], y: cyLine } : { x: B ?? P[0], y: cyLine };
+    // straight letters: the rigid line plus the springy ripple
     ln.chars.forEach((c, i) => {
-      const px = ln.x + c.x + c.w / 2;
-      let x = px, yy = y, rot = 0;
-      if (B != null) {
-        const S = L ? B - R : B + R;
-        const over = L ? px - S : S - px;
-        if (over > 0) {
-          const th = Math.tanh(over / R), slope = 1 - th * th;
-          const xs = R * th, ys = (over - xs) * 1.15;
-          x = L ? S + xs : S - xs;
-          yy = y + dir * ys;
-          rot = (L ? 1 : -1) * Math.atan2(dir * 1.15 * (1 - slope), slope);
-        }
-      }
-      yy += Math.sin(px * 0.03 + t * 3.2 + ln.y0 * 0.1) * tv.wob * 0.25;  // ripple while it moves
-      // the line itself moves rigidly with the track; only its deformation (bend + ripple)
-      // rides on an under-damped spring per letter — jelly, but it never flies apart
-      const dx = x - px, dy = yy - y;
-      if (c.sx === undefined) { c.sx = dx; c.sy = dy; c.sr = rot; c.vx = 0; c.vy = 0; }
+      if (isRope(i)) return;
+      c.rope = false;
+      const dy = Math.sin(P[i] * 0.03 + t * 3.2 + ln.y0 * 0.1) * tv.wob * 0.25;
+      if (c.sx === undefined) { c.sx = 0; c.sy = dy; c.vx = 0; c.vy = 0; }
       const kS = 120 + (i % 5) * 12, dmp = 13;
-      for (let sub = 0; sub < 2; sub++) {                          // two half-steps: stable at low fps
+      for (let sub = 0; sub < 2; sub++) {
         const h = dt / 2;
-        c.vx += ((dx - c.sx) * kS - c.vx * dmp) * h;
+        c.vx += ((0 - c.sx) * kS - c.vx * dmp) * h;
         c.vy += ((dy - c.sy) * kS - c.vy * dmp) * h;
         c.sx += c.vx * h; c.sy += c.vy * h;
       }
-      c.sr += (rot - c.sr) * Math.min(1, dt * 10);
-      c.el.style.transform = `translate3d(${(px + c.sx - c.w / 2).toFixed(1)}px, ${(y + c.sy).toFixed(1)}px, 0) rotate(${c.sr.toFixed(3)}rad)`;
+      c.cxp = P[i] + c.sx; c.cyp = cyLine + c.sy;
+      c.el.style.transform = `translate3d(${(c.cxp - c.w / 2).toFixed(1)}px, ${(c.cyp - ln.h / 2).toFixed(1)}px, 0)`;
+    });
+    if (!order.length) continue;
+    // rope letters: verlet with gravity, fixed spacing, pushed out of the car
+    for (const i of order) {
+      const c = ln.chars[i];
+      if (!c.rope) { c.rope = true; c.nx = c.ox = P[i]; c.ny = c.oy = cyLine; }
+    }
+    const h = dt / steps;
+    for (let sIt = 0; sIt < steps; sIt++) {
+      for (const i of order) {
+        const c = ln.chars[i];
+        const vx = (c.nx - c.ox) * 0.985, vy = (c.ny - c.oy) * 0.985;
+        c.ox = c.nx; c.oy = c.ny;
+        c.nx += vx; c.ny += vy + G * h * h;
+      }
+      for (let it = 0; it < 6; it++) {
+        let prevC = null, prevI = anchorIdx;                      // the first link hangs from the fixed anchor
+        for (const i of order) {
+          const c = ln.chars[i];
+          const rest = prevI >= 0 && prevI < n ? Math.abs(P[i] - P[prevI]) : c.w / 2 + 1;
+          const ax = prevC ? prevC.nx : anchor.x, ay = prevC ? prevC.ny : anchor.y;
+          const dx = c.nx - ax, dy = c.ny - ay, d = Math.hypot(dx, dy) || 1e-3;
+          const diff = (d - rest) / d;
+          if (!prevC) { c.nx -= dx * diff; c.ny -= dy * diff; }
+          else {
+            c.nx -= dx * diff * 0.5; c.ny -= dy * diff * 0.5;
+            prevC.nx += dx * diff * 0.5; prevC.ny += dy * diff * 0.5;
+          }
+          const push = carPush(frame, c.nx, c.ny);
+          if (push) { c.nx = push[0]; c.ny = push[1]; }
+          if (c.ny > H + 40) c.ny = H + 40;
+          prevC = c; prevI = i;
+        }
+      }
+    }
+    // draw rope letters along the rope, turned to its direction in reading order
+    let last = anchor;
+    const pts = order.map((i) => ln.chars[i]);
+    pts.forEach((c, k) => {
+      const nxt = pts[k + 1];
+      // tangent in reading order (left to right in the original line)
+      let ax, ay;
+      if (L) { ax = c.nx - last.x; ay = c.ny - last.y; }
+      else { ax = last.x - c.nx; ay = last.y - c.ny; }
+      const rot = Math.atan2(ay, ax);
+      c.el.style.transform = `translate3d(${(c.nx - c.w / 2).toFixed(1)}px, ${(c.ny - ln.h / 2).toFixed(1)}px, 0) rotate(${rot.toFixed(3)}rad)`;
+      last = { x: c.nx, y: c.ny };
     });
   }
   tv.lines.forEach((ln, i) => ln.p.classList.toggle("cur", i === curIdx));

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=36";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=37";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "36";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "37";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -659,48 +659,83 @@ function drawPills(dt) {
   }
 }
 
-// the cloud band at the top of slide 3: the paper of slide 2 billows down into the black,
-// dithered to paper / two greys like the rest of the site, drifting slowly sideways.
+// the cloud bank on the seam between slide 2 and 3, dithered to paper / greys like the rest of
+// the site. Each layer is a cumulus: a flat base with a billowing top of domes of very different
+// sizes, its outline roughened by noise. Flat fill, lit from above: only the underside goes
+// grey. The front layer covers the seam (rising a little over Arseny's torso); three layers
+// behind it sit higher, greyer, drift slower and lag behind the page when it scrolls (parallax).
 // Drawn small (one cell = CLOUD_PX css px) and scaled up pixelated.
 const cloudCv = $("#clouds"), cloudCtx = cloudCv.getContext("2d");
 const CLOUD_PX = 3;
 let cloudImg = null, cloudT = -1;
-const CLOUD_TONES = [null, [70, 70, 70], [176, 176, 176], [242, 242, 242]];
-// puffs: round lobes along the seam — one row bulging up over the torso, one hanging down into
-// the black — on a solid core over the seam line itself; a grey dithered rim all round
-const PUFFS = [];
-for (let i = 0; i < 20; i++) PUFFS.push({ row: 0, k: (i + 0.6 * hash(i, 6)) / 20, r: 0.13 + 0.1 * hash(i, 1), y: -0.02 + 0.04 * hash(i, 2) });
-for (let i = 0; i < 16; i++) PUFFS.push({ row: 1, k: (i + 0.8 * hash(i, 5)) / 16, r: 0.13 + 0.11 * hash(i, 3), y: 0.05 + 0.06 * hash(i, 4) });
+// domes along a strip that repeats every span (units of the canvas height)
+function cloudLayer(seed, o) {
+  const L = [];
+  let x = 0;
+  for (let i = 0; x < 9 || i < 6; i++) {
+    const k = hash(i + seed * 17, 1);
+    const r = o.r * (0.4 + (o.big || 1.4) * k * k);          // mostly small, now and then a big one
+    L.push({ x, r, dy: (hash(i, seed + 2) - 0.5) * o.r * 0.6 });
+    x += r * (0.8 + 0.5 * hash(i + seed, 9));
+  }
+  return { ...o, L, span: x };
+}
+// y: the layer's base line (part of the canvas height, 0.5 = on the seam); top / base: how far
+// the body reaches above / below it; speed in cells/s; para: lag when scrolling;
+// tones: deep shadow, shadow, body
+const CLOUD_LAYERS = [
+  cloudLayer(4, { y: 0.4, r: 0.085, top: 0.02, base: 0.02, big: 1.8, speed: 0.35, para: 0.32, tones: [[40, 40, 40], [62, 62, 62], [96, 96, 96]] }),
+  cloudLayer(3, { y: 0.45, r: 0.09, top: 0.02, base: 0.025, speed: 0.6, para: 0.22, tones: [[52, 52, 52], [92, 92, 92], [140, 140, 140]] }),
+  cloudLayer(2, { y: 0.5, r: 0.1, top: 0.02, base: 0.03, speed: 0.95, para: 0.12, tones: [[64, 64, 64], [128, 128, 128], [190, 190, 190]] }),
+  cloudLayer(1, { y: 0.58, r: 0.12, top: 0.03, base: 0.05, big: 1.6, speed: 1.5, para: 0, tones: [[90, 90, 90], [176, 176, 176], [242, 242, 242]] }),
+];
 function drawClouds(t) {
   const W = Math.ceil(cloudCv.clientWidth / CLOUD_PX), H = Math.ceil(cloudCv.clientHeight / CLOUD_PX);
   if (!W || !H || t - cloudT < 1 / 24) return;          // 24 fps is plenty for a slow drift
   cloudT = t;
   if (cloudCv.width !== W || cloudCv.height !== H) { cloudCv.width = W; cloudCv.height = H; cloudImg = cloudCtx.createImageData(W, H); }
   const d = cloudImg.data;
-  // the seam line (slide 3's top) inside the canvas: --up over --up + --down
+  // where the seam (slide 3's top) is inside the canvas: --up over --up + --down
   const cs = getComputedStyle(cloudCv.parentElement);
   const up = parseFloat(cs.getPropertyValue("--up")), down = parseFloat(cs.getPropertyValue("--down"));
-  const mid = H * up / (up + down);
-  // puff circles in cells for this frame; spacing follows the height, so phones get round lobes too
-  const span = Math.max(W + H, H * 4.5), circ = [];
-  for (const p of PUFFS) {
-    const r = p.r * H, cx0 = p.k * span + t * (p.row ? 1.6 : 0.9);
-    const cx = ((cx0 % span) + span) % span;
-    for (const off of [-span, 0, span]) if (cx + off + r > 0 && cx + off - r < W) circ.push([cx + off, mid + p.y * H, r]);
-  }
-  const core = H * 0.07;
+  const seam = up / (up + down);
+  const rc = cloudCv.getBoundingClientRect();
+  const off = (rc.top + rc.height / 2 - innerHeight / 2) / innerHeight;   // scroll parallax
+  // this frame's layers in cells, front first
+  const layers = CLOUD_LAYERS.map((Lr) => {
+    const base = (Lr.y + seam - 0.5 - off * Lr.para) * H, sp = Lr.span * H, shift = t * Lr.speed * 3, domes = [];
+    const top = base - (Lr.top + Lr.base) * H;
+    for (const p of Lr.L) {
+      const r = p.r * H, cx = (((p.x * H + shift) % sp) + sp) % sp - 2 * Lr.r * H;
+      for (const o2 of [-sp, 0, sp]) if (cx + o2 + r > -4 && cx + o2 - r < W + 4) domes.push([cx + o2, top + p.dy * H + r * 0.15 - (r - Lr.r * H) * 0.9, r]);   // big domes stand taller
+    }
+    const r = Lr.r * H;
+    return { top, bot: base + Lr.base * H, domes, amp: r * 0.3, nf: 1 / (r * 0.55), shade: r * 0.45, seed: Lr.speed * 13, shift, tones: Lr.tones };
+  }).reverse();
+  // signed distance to a layer's outline (cells, < 0 inside), roughened by noise near the edge
+  const dist = (l, col, x, y) => {
+    let v = Math.max(y - l.bot, l.top - y);
+    for (const [cx, cy, r] of col) { const q = Math.hypot(x - cx, y - cy) - r; if (q < v) v = q; }
+    if (Math.abs(v) > l.amp * 1.2) return v;
+    return v + (fbm((x - l.shift) * l.nf + l.seed, y * l.nf, 3) - 0.5) * 2 * l.amp;
+  };
   for (let x = 0; x < W; x++) {
-    const col = circ.filter((c) => Math.abs(c[0] - x) < c[2]);
+    const cols = layers.map((l) => l.domes.filter((c) => Math.abs(c[0] - x) < c[2] + 2));
     for (let y = 0; y < H; y++) {
-      // s: how deep inside the cloud, in parts of a puff's radius
-      let s = (core - Math.abs(y - mid)) / (H * 0.12);
-      for (const [cx, cy, r] of col) {
-        const v = (r - Math.hypot(x - cx, y - cy)) / r;
-        if (v > s) s = v;
+      const i = (y * W + x) * 4;
+      let c = null;
+      for (let k = 0; k < layers.length && !c; k++) {
+        const l = layers[k];
+        if (y > l.bot + l.amp * 1.3) continue;
+        const v = dist(l, cols[k], x, y);
+        if (v > 0) continue;
+        // lit from above: the body is flat; the underside (close to the outline below) goes grey
+        const below = dist(l, cols[k], x, y + l.shade), below2 = dist(l, cols[k], x, y + l.shade * 0.4);
+        const th = BAYER[(y % 4) * 4 + (x % 4)];
+        if (below2 > 0) c = th < 0.7 ? l.tones[0] : l.tones[1];
+        else if (below > 0) c = th < 0.55 ? l.tones[1] : l.tones[2];
+        else c = v > -1 && th < 0.3 ? l.tones[1] : l.tones[2];
       }
-      const f = clamp((s + 0.05) / 0.4);
-      const lv = f >= 1 ? 3 : Math.min(3, Math.floor(f * 3 + BAYER[(y % 4) * 4 + (x % 4)]));
-      const i = (y * W + x) * 4, c = CLOUD_TONES[lv];
       if (c) { d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255; } else d[i + 3] = 0;
     }
   }

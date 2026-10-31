@@ -163,7 +163,7 @@ em { font-style: normal; color: var(--dim); }
 /* a bank of dithered white clouds sits on the seam: it rises over the bottom of Arseny's torso
    on slide 2 (--up, hiding the bust's straight cut) and billows down into the black (--down);
    the Xanax bars drift down out of it */
-#s3 { --up: 22vh; --down: 26vh; position: relative; z-index: 7; background: #000; padding: calc(var(--down) + 8vh) 300px 90px; min-height: 100vh; }
+#s3 { --up: 24vh; --down: 20vh; position: relative; z-index: 7; background: #000; padding: calc(var(--down) + 8vh) 300px 90px; min-height: 100vh; }
 .pills { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: .3; pointer-events: none; }
 #s3 > .clouds { position: absolute; left: 0; top: calc(-1 * var(--up)); width: 100%; height: calc(var(--up) + var(--down)); display: block; pointer-events: none; image-rendering: pixelated; z-index: 0; }
 #s3 > *:not(.pills, .clouds) { position: relative; z-index: 1; }
@@ -236,7 +236,7 @@ em { font-style: normal; color: var(--dim); }
   .tv-bar .tv-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
   .tv iframe.bc { position: absolute; top: 46px; left: var(--gutter); width: calc(100% - 32px); }
   .lion { right: 2vw; bottom: 30vh; width: 52vw; opacity: .16; }
-  #s3 { --up: 16vh; --down: 20vh; padding: calc(var(--down) + 6vh) var(--gutter) 70px; }
+  #s3 { --up: 17vh; --down: 15vh; padding: calc(var(--down) + 6vh) var(--gutter) 70px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .tick-in, .scroll-hint, .clock .dot { animation: none; }

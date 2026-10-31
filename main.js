@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=27";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=28";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "27";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "28";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -75,6 +75,8 @@ $("#tracks").innerHTML = TRACKS.map(([t, d], i) => `<li><span>${String(i + 1).pa
 const PLAYABLE = {
   // times: when each lyric line starts (s); record them with ?sync on the site
   "STALIN MOUSTACHE": { sc: "https://soundcloud.com/xanaxtbilisi/stalin-moustache", impostor: "prius", times: null },
+  // only the acoustic version is on the band's SoundCloud
+  "WHERE I'VE BEEN LAST 8 YEARS": { sc: "https://soundcloud.com/xanaxtbilisi/where-ive-been-last-8-years-acoustic", impostor: "bottle", times: null },
 };
 $("#exitTracks").innerHTML = TRACKS.map(([t, d], i) =>
   `<div class="tr${PLAYABLE[t] ? " playable" : ""}" data-t="${t}"><span>${String(i + 1).padStart(2, "0")} ${t}</span><b>${d}</b></div>`).join("");
@@ -869,8 +871,9 @@ function tvTick(t) {
   if (!W || !H) return;
   if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
   const { meta, img: im, ctx } = tv;
-  const n = meta.frames.length, frame = Math.floor(t * 5) % n;             // one slow turn every ~9.6 s, frames in order
-  tv.fa = frame; tv.fb = (frame + 1) % n; tv.ff = t * 5 - Math.floor(t * 5);
+  // one slow turn every ~9.6 s whatever the number of frames, frames in order
+  const n = meta.frames.length, ft = t * n / 9.6, frame = Math.floor(ft) % n;
+  tv.fa = frame; tv.fb = (frame + 1) % n; tv.ff = ft - Math.floor(ft);
   // entrance: the car comes from far away (small, high, transparent) to its place
   let k = tv.appear0 ? ease(clamp((performance.now() - tv.appear0) / 1800)) : 0;
   if (tv.leave0) k = Math.min(k, 1 - ease(clamp((performance.now() - tv.leave0) / 1200)));

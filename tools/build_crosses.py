@@ -94,26 +94,31 @@ for (x0, x1, y0, y1), hidden in CROSSES:
 # a traced bar (the edges' deviation from a straight bar, scaled to its thickness), plus a
 # slight lean and slanted ends. Coordinates in % of the cross box, like its old CSS bars:
 # vertical 43..57 x -30..100, horizontal 3..97 x 43..57.
-def hand(src, length, width, lean, ends):
+def hand(src, length, width, lean, ends, amp=2.6, kink=0.0, cross=0.5, taper=0.0):
+    """amp: how much stronger than the source the edge wobble is; kink: the bar bends where
+    the other bar crosses it (both arms lean away by kink per unit of s); taper: the bar is
+    1 + taper/2 times as thick at its start as the mean and 1 - taper/2 at its end"""
     t, e0, e1 = src
     w0 = np.mean(e1 - e0)
     u = (t - t[0]) / (t[-1] - t[0])
     mid = (e0 + e1) / 2
     fit = np.polyval(np.polyfit(u, mid, 1), u)
-    d0 = (e0 - mid) / w0 * width - (-width / 2) + (mid - fit) / w0 * width    # edge offsets, bar units
-    d1 = (e1 - mid) / w0 * width - (width / 2) + (mid - fit) / w0 * width
-    d0, d1 = smooth(d0, 15), smooth(d1, 15)                  # scaled up 3x: soften the small steps
-    s = np.linspace(0, 1, 60)
-    a = np.interp(s, u, d0) - width / 2 + lean * (s - 0.5)
-    b = np.interp(s, u, d1) + width / 2 + lean * (s - 0.5)
+    d0 = ((e0 - mid) / w0 * width + width / 2 + (mid - fit) / w0 * width) * amp    # edge offsets, bar units
+    d1 = ((e1 - mid) / w0 * width - width / 2 + (mid - fit) / w0 * width) * amp
+    d0, d1 = smooth(d0, 15), smooth(d1, 15)                  # scaled up: soften the small steps
+    s = np.linspace(0, 1, 80)
+    centre = lean * (s - 0.5) + kink * np.abs(s - cross)
+    half = width / 2 * (1 + taper * (0.5 - s))
+    a = np.interp(s, u, d0) - half + centre
+    b = np.interp(s, u, d1) + half + centre
     pa = ends[0] + s * (length - ends[0] - ends[1])          # slanted ends: edge a starts/ends a bit off
     pb = ends[2] + s * (length - ends[2] - ends[3])
     return pa, a, pb, b
 
 big = []
-pa, a, pb, b = hand(hbars[2], 94, 14, -1.2, (0, 0.8, 1.1, 0))           # horizontal: from the bottom-left cross
+pa, a, pb, b = hand(hbars[2], 94, 14, -3.5, (0, 3.2, 3.0, 0), kink=-5, cross=0.5, taper=0.3)       # horizontal: from the bottom-left cross
 big.append([(3 + x, 50 + y) for x, y in zip(pa, a)] + [(3 + x, 50 + y) for x, y in zip(pb[::-1], b[::-1])])
-pa, a, pb, b = hand(hbars[3], 130, 14, 1.6, (1.4, 0, 0, 1.0))           # vertical: from the bottom-right cross
+pa, a, pb, b = hand(hbars[3], 130, 14, 4.5, (3.5, 0, 0, 2.8), kink=3, cross=0.615, taper=-0.25)   # vertical: from the bottom-right cross
 big.append(([(50 + y, -30 + x) for x, y in zip(pa, a)] + [(50 + y, -30 + x) for x, y in zip(pb[::-1], b[::-1])])[::-1])
 big_d = "".join("M" + " ".join(f"{x:.2f},{y:.2f}" for x, y in P) + "Z" for P in big)
 out.append({"viewBox": "0 0 100 100", "d": big_d, "w": 100, "big": True})

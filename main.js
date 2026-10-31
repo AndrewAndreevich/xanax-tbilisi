@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=25";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=27";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "25";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "27";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -922,7 +922,7 @@ function tvTick(t) {
   for (const ln of tv.lines) {
     const y = H / 2 + (tv.Ys - ln.y0);
     if (y < -40 || y > H + 20) {
-      ln.p.style.visibility = "hidden"; ln.x = null;
+      ln.p.style.visibility = "hidden"; ln.x = null; ln.ax = ln.ay = null;
       for (const c of ln.chars) { c.sx = undefined; c.rope = false; }
       continue;
     }
@@ -967,15 +967,20 @@ function tvTick(t) {
     });
     if (!order.length) continue;
     // rope letters: verlet with gravity, fixed spacing, pushed out of the car
+    // the tail rides along with its line (most of the move, keeping its velocity) so a fast
+    // scrub cannot leave it behind to whip round; the small lag left is what makes it swing
+    const adx = ln.ax == null ? 0 : anchor.x - ln.ax, ady = ln.ay == null ? 0 : anchor.y - ln.ay;
+    ln.ax = anchor.x; ln.ay = anchor.y;
     for (const i of order) {
       const c = ln.chars[i];
-      if (!c.rope) { c.rope = true; c.nx = c.ox = P[i]; c.ny = c.oy = cyLine; }
+      if (!c.rope) { c.rope = true; c.nx = c.ox = P[i]; c.ny = c.oy = cyLine; continue; }
+      c.nx += adx * 0.85; c.ox += adx * 0.85; c.ny += ady * 0.85; c.oy += ady * 0.85;
     }
     const h = dt / steps;
     for (let sIt = 0; sIt < steps; sIt++) {
       for (const i of order) {
         const c = ln.chars[i];
-        const vx = (c.nx - c.ox) * 0.975, vy = (c.ny - c.oy) * 0.975;
+        const vx = (c.nx - c.ox) * 0.94, vy = (c.ny - c.oy) * 0.94;   // swings die out quickly
         c.ox = c.nx; c.oy = c.ny;
         c.nx += vx; c.ny += vy + G * h * h;
       }
@@ -993,23 +998,28 @@ function tvTick(t) {
           px0 = c.nx; py0 = c.ny; pI = i;
         }
       }
+      // joint limits: a link may turn at most ~35° from the previous one and the tail
+      // at most ~110° from the line's own direction — it can droop, never whirl round
+      const out = L ? 0 : Math.PI, JOINT = 0.6, TOTAL = 1.9;
+      const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
       for (let it = 0; it < 6; it++) {
-        let prevC = null, prevI = anchorIdx;                      // the first link hangs from the fixed anchor
+        let prevC = null, prevI = anchorIdx, prevAng = out;      // the first link hangs from the fixed anchor
         for (const i of order) {
           const c = ln.chars[i];
           const rest = prevI >= 0 && prevI < n ? Math.abs(P[i] - P[prevI]) : c.w / 2 + 1;
           const ax = prevC ? prevC.nx : anchor.x, ay = prevC ? prevC.ny : anchor.y;
+          // one-sided chain from the anchor outwards: length, then out of the car, and the
+          // joint limits last so nothing afterwards can fold the tail back over itself
           const dx = c.nx - ax, dy = c.ny - ay, d = Math.hypot(dx, dy) || 1e-3;
-          const diff = (d - rest) / d;
-          if (!prevC) { c.nx -= dx * diff; c.ny -= dy * diff; }
-          else {
-            c.nx -= dx * diff * 0.5; c.ny -= dy * diff * 0.5;
-            prevC.nx += dx * diff * 0.5; prevC.ny += dy * diff * 0.5;
-          }
-
+          c.nx = ax + dx / d * rest; c.ny = ay + dy / d * rest;
           const push = carPush(c.nx, c.ny, L);
           if (push) { c.nx = push[0]; c.ny = push[1]; }
+          let ang = Math.atan2(c.ny - ay, c.nx - ax);
+          ang = prevAng + Math.max(-JOINT, Math.min(JOINT, wrap(ang - prevAng)));
+          ang = out + Math.max(-TOTAL, Math.min(TOTAL, wrap(ang - out)));
+          c.nx = ax + Math.cos(ang) * rest; c.ny = ay + Math.sin(ang) * rest;
           if (c.ny > H + 40) c.ny = H + 40;
+          prevAng = ang;
           prevC = c; prevI = i;
         }
       }

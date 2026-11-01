@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=58";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=59";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "58";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "59";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -778,6 +778,9 @@ function sizePills() {
   pillCv.width = Math.max(1, Math.round(r.width * dpr));
   pillCv.height = Math.max(1, Math.round(r.height * dpr));
 }
+// slide 3 changes height without a window resize (the track view opens and folds away under a
+// track): the canvas follows, or its bitmap would be stretched and the pills squashed
+new ResizeObserver(sizePills).observe(pillCv);
 
 // ---------------------------------------------------------------- track view (slide 3)
 // Clicking a playable track opens a black stage right under it: the impostor turns

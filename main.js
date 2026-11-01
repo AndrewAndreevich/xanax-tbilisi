@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=57";
+import { FIRE_GLSL, createEdgeFire } from "./fire.js?v=58";
 
 // ---------------------------------------------------------------- content
 const TRACKS = [
@@ -62,7 +62,7 @@ FOREVER IN THE HEART.
 HE DOES NOT MAKE SONGS TO BE LIKED.
 *HE MAKES THEM TO BE ON THE RECORD.`.split("\n");
 
-const V = "57";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
+const V = "58";                                       // bump with index.html ?v= on every deploy (Pages caches 10 min)
 const asset = (p) => `${p}?v=${V}`;
 const isMobile = () => innerWidth <= 820;
 const $ = (s) => document.querySelector(s);
@@ -781,25 +781,28 @@ function sizePills() {
 
 // ---------------------------------------------------------------- track view (slide 3)
 // Clicking a playable track opens a black stage right under it: the impostor turns
-// on one ring, the track plays through the band's SoundCloud widget, and the lyrics
+// on one ring, the track plays (the band's SoundCloud files, served from here), and the lyrics
 // (the track's description on SoundCloud, fetched live) flow round the car's
 // silhouette in step with playback. BACK folds it away.
-const tv = { el: null, row: null, cv: null, ctx: null, lyr: null, lines: [], streamH: 0, widget: null,
+const tv = { el: null, row: null, cv: null, ctx: null, lyr: null, lines: [], streamH: 0,
   progress: 0, pos: 0, dur: 0, img: null, meta: null, rect: { x: 0, y: 0, w: 0, h: 0 }, resume: false,
-  title: "", times: null, syncing: false, tapTimes: [], appear0: 0, busy: false, peaks: null,
+  title: "", times: null, appear0: 0, busy: false, peaks: null,
   scrubbing: false, Ys: null, prevYs: null, wob: 0, lastT: 0, leaving: false, leave0: 0 };
-const SYNC = new URLSearchParams(location.search).has("sync");
-const timesKey = (t) => `xt-times:${t}`;
-const savedTimes = (t) => { try { return JSON.parse(localStorage.getItem(timesKey(t))); } catch { return null; } };
-let scApi = null;
-const loadScApi = () => scApi || (scApi = new Promise((ok, err) => {
-  const sc = document.createElement("script");
-  sc.src = "https://w.soundcloud.com/player/api.js";
-  sc.onload = () => ok(window.SC); sc.onerror = err;
-  document.head.appendChild(sc);
-}));
-// fetched while the page is idle, so a click on a track only waits for the widget itself
-setTimeout(() => loadScApi().catch(() => { scApi = null; }), 3000);
+// the album tracks play from the site itself (assets/audio/tracks, the files on the band's
+// SoundCloud): an element of our own can be started inside the click that opens the track, so
+// it plays at once on every browser (the SoundCloud widget is a cross-origin frame — phones
+// and some desktops refused to start it without a second tap in the frame itself)
+const tvAudio = document.createElement("audio");
+tvAudio.preload = "auto";
+tvAudio.setAttribute("playsinline", "");
+const slugOf = (cfg) => cfg.sc.split("/").pop();
+tvAudio.addEventListener("play", () => { if (ext) { ext.paused = false; syncUI(); } });
+tvAudio.addEventListener("pause", () => { if (ext) { ext.paused = true; syncUI(); } });
+tvAudio.addEventListener("ended", () => { if (ext && tv.el && !tv.busy) trackEnded(); });
+tvAudio.addEventListener("loadedmetadata", () => { if (ext) tv.dur = tvAudio.duration; });
+// ?edit: the word-timing editor (editor.js) on top of the track view
+const EDIT = new URLSearchParams(location.search).has("edit");
+let editor = null;
 // when each word of the lyrics is sung (Whisper, matched to the SoundCloud text)
 const lyricSync = fetch(asset("assets/lyrics_sync.json")).then((r) => r.json()).catch(() => ({}));
 const impostors = {};
@@ -840,7 +843,8 @@ async function closeTrack() {
   if (!tv.el || tv.leaving) return;
   tv.leaving = true;
   const { el, row } = tv;
-  try { tv.widget && tv.widget.pause(); } catch {}
+  tvAudio.pause();
+  editor?.close();
   // the car drives off into the distance first (the entrance played backwards),
   // the lyrics fade with it — only then does the stage fold away
   tv.leave0 = performance.now();
@@ -906,18 +910,11 @@ async function openTrack(row) {
     autoNext = !autoNext; showAuto();
     try { localStorage.setItem("xt-auto", autoNext ? "1" : "0"); } catch {}
   });
-  if (SYNC) {
-    const box = document.createElement("div");
-    box.className = "tv-sync";
-    box.textContent = "SYNC: TAP / SPACE AT THE START OF EACH LINE";
-    el.appendChild(box);
-    el.addEventListener("pointerdown", (e) => { if (!e.target.closest("button, iframe, textarea")) tapLine(); });
-  }
-  if (!SYNC) {
+  {
     // drag the lyrics up or down: the track follows (down = later, the text falls with time)
     let drag = null;
     el.addEventListener("pointerdown", (e) => {
-      if (e.target.closest("button")) return;
+      if (e.target.closest("button, .tv-edit")) return;
       drag = { y: e.clientY, k: tv.progress };
       scrub = { last: 0 };
       el.setPointerCapture(e.pointerId);
@@ -955,8 +952,9 @@ async function openTrack(row) {
 // drives in with its own sound and lyrics
 async function switchTrack(row) {
   tv.busy = true;
-  try { tv.widget && tv.widget.pause(); } catch {}
-  tv.token = null;                                          // the old track's widget events stop counting
+  tvAudio.pause();
+  editor?.close();
+  tv.token = null;                                          // the old track's late loads stop counting
   tv.leave0 = performance.now();
   await new Promise((r) => setTimeout(r, 1300));
   const el = tv.el, before = el.getBoundingClientRect().top;
@@ -970,32 +968,34 @@ async function switchTrack(row) {
 // the track's own parts of the stage: title, buttons, players, lyrics, the HUD player
 function setupTrack(row) {
   const el = tv.el, title = row.dataset.t, cfg = PLAYABLE[title];
-  el.querySelectorAll("iframe").forEach((f) => f.remove());
   el.querySelector(".tv-title").textContent = title;
-  el.insertAdjacentHTML("beforeend", `<iframe class="sc" allow="autoplay" title="${title} on SoundCloud" tabindex="-1"
-    src="https://w.soundcloud.com/player/?url=${encodeURIComponent(cfg.sc)}&auto_play=true&show_user=false&show_artwork=false&visual=false"></iframe>`);
+  // the sound starts right here: from openTrack this still runs inside the click
+  tvAudio.src = asset(`assets/audio/tracks/${slugOf(cfg)}.mp3`);
+  tvAudio.volume = vol;
+  tvAudio.play().catch(() => {});
   tv.lyr.innerHTML = "";
   tv.ctx.setTransform(1, 0, 0, 1, 0, 0);
   tv.ctx.clearRect(0, 0, tv.cv.width, tv.cv.height);
   markTrack(title);
-  Object.assign(tv, { row, token: {}, lines: [], streamH: 0, progress: 0, pos: 0, dur: 0, widget: null, img: null, meta: null,
-    title, times: cfg.times || savedTimes(title), syncing: SYNC, tapTimes: [], words: null, appear0: 0, peaks: null,
+  Object.assign(tv, { row, token: {}, lines: [], streamH: 0, progress: 0, pos: 0, dur: 0, img: null, meta: null,
+    title, times: null, words: null, appear0: 0, peaks: null,
     scrubbing: false, Ys: null, prevYs: null, wob: 0, lastT: 0, leaving: false, leave0: 0, size: cfg.size || 1, vis: null, band: null });
   const rows = trackRows(), idx = rows.indexOf(row);
   el.querySelector(".tv-prev").disabled = idx <= 0;
   el.querySelector(".tv-next").disabled = idx >= rows.length - 1;
-  ext = { paused: true, play() { tv.widget?.play(); }, pause() { tv.widget?.pause(); },
-    seek(k) { tv.widget?.seekTo(k * tv.dur * 1000); }, volume(v) { tv.widget?.setVolume(v * 100); } };
+  ext = { paused: tvAudio.paused, play() { tvAudio.play().catch(() => {}); }, pause() { tvAudio.pause(); },
+    seek(k) { if (tv.dur) tvAudio.currentTime = k * tv.dur; }, volume(v) { tvAudio.volume = v; } };
   setPlayerTitle(title, "XANAX TBILISI");
   plTime.textContent = "00:00 / 00:00";
   $("#plBar").style.setProperty("--t", 0);
   syncUI();
   loadImpostor(cfg.impostor);                               // start fetching while the stage opens / the old one leaves
   const token = tv.token;
-  loadScApi().then(() => bindWidget(token)).catch(() => null);
+  fetch(asset(`assets/audio/tracks/${slugOf(cfg)}.peaks.json`)).then((r) => r.json())
+    .then((p) => { if (tv.token === token) tv.peaks = p; }).catch(() => {});
 }
 
-// once the object is loaded: it drives in, the lyrics and the SoundCloud widget start
+// once the object is loaded: it drives in and the lyrics come
 async function startTrack(row) {
   const token = tv.token, title = row.dataset.t, cfg = PLAYABLE[title];
   const [meta, im] = await loadImpostor(cfg.impostor);
@@ -1005,7 +1005,7 @@ async function startTrack(row) {
   const rows = meta.frames.flatMap((f) => f.profile.map((p, i) => (p ? i : -1))).filter((i) => i >= 0), nr = meta.frames[0].profile.length;
   tv.vis = rows.length ? [Math.min(...rows) / nr, (Math.max(...rows) + 1) / nr] : [0, 1];
   if (!tv.appear0) tv.appear0 = performance.now();
-  if (ext && ext.paused) tv.widget?.play();                 // in case the widget was ready before it was bound
+  if (ext && ext.paused) ext.play();                       // in case the browser refused it in setupTrack
   // lyrics: the track's description on SoundCloud
   const fallback = [title, "XANAX TBILISI", "2022"];
   fetch(`https://soundcloud.com/oembed?format=json&url=${encodeURIComponent(cfg.sc)}`)
@@ -1014,43 +1014,17 @@ async function startTrack(row) {
       const text = (j.description || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
       // tools/align_lyrics.py: the lines as they are sung (choruses repeated in full, in stanzas)
       // with the time of every word — used only while SoundCloud still has the same text
-      const sync = (await lyricSync)[title];
+      let sync = (await lyricSync)[title];
+      if (EDIT) {
+        editor = editor || await import(`./editor.js?v=${V}`);
+        sync = editor.load(title, text, sync);                 // this device's edits, or a copy of the site's
+      }
       if (tv.token !== token) return;
       if (sync && sync.src.join("\n") === text.join("\n")) buildLyrics(sync.lines, sync.words, sync.stanza);
       else buildLyrics(text.length ? text : fallback);
+      if (EDIT && sync) editor.open({ tv, audio: tvAudio, sync, rebuild: () => buildLyrics(sync.lines, sync.words, sync.stanza), retime });
     })
     .catch(() => tv.token === token && buildLyrics(fallback));
-}
-
-// the SoundCloud widget is bound as soon as its iframe exists, so its READY is never missed
-// (it used to be bound only after the object had loaded — by then the widget was often
-// ready already and the track never started); it plays the moment it is ready
-function bindWidget(token) {
-  if (tv.token !== token || !window.SC) return;
-  const w = tv.widget = SC.Widget(tv.el.querySelector("iframe.sc"));
-  w.bind(SC.Widget.Events.READY, () => {
-    if (tv.token !== token) return;
-    w.setVolume(vol * 100); w.play(); w.getDuration((d) => (tv.dur = d / 1000));
-    w.getCurrentSound((snd) => {
-      const u = snd && snd.waveform_url && snd.waveform_url.replace(/\.png$/, ".json");
-      if (u) fetch(u).then((r) => r.json()).then((j) => {
-        const m = Math.max(1, ...j.samples);
-        if (tv.token === token) tv.peaks = j.samples.map((v) => v / m);
-      }).catch(() => {});
-    });
-  });
-  w.bind(SC.Widget.Events.PLAY, () => { if (ext && tv.token === token) { ext.paused = false; syncUI(); } });
-  w.bind(SC.Widget.Events.PAUSE, () => { if (ext && tv.token === token) { ext.paused = true; syncUI(); } });
-  w.bind(SC.Widget.Events.FINISH, () => { if (tv.token === token) trackEnded(); });
-  w.bind(SC.Widget.Events.PLAY_PROGRESS, (e) => {
-    if (tv.scrubbing || tv.token !== token) return;
-    tv.progress = e.relativePosition;
-    tv.pos = e.currentPosition / 1000;
-    if (ext) {
-      plTime.textContent = `${mmss(tv.pos)} / ${mmss(tv.dur)}`;
-      $("#plBar").style.setProperty("--t", tv.progress);
-    }
-  });
 }
 
 function buildLyrics(lines, words, stanza) {
@@ -1059,7 +1033,7 @@ function buildLyrics(lines, words, stanza) {
   // (the text falls as the song goes on). With word times every letter knows its word (data-w),
   // and every piece starts when its first word is sung
   tv.words = words ? words.flat() : null;
-  const max = isMobile() ? 22 : 30, starts = [];
+  const max = isMobile() ? 22 : 30, firsts = [];
   const halves = (l) => {
     const w = l.split(" ");
     if (w.length < 2) return [l];
@@ -1077,7 +1051,7 @@ function buildLyrics(lines, words, stanza) {
     const pieces = parts.length === 1 ? halves(l) : parts;
     return pieces.map((part, q) => {
       if (q && q % 2 === 0) row++;
-      if (tv.words) starts.push(tv.words[wi][0]);
+      if (tv.words) firsts.push(wi);
       const html = part.split(" ").map((w) => {
         const word = [...w].map((c) => `<span${tv.words ? ` data-w="${wi}"` : ""}>${esc(c)}</span>`).join("");
         wi++;
@@ -1088,7 +1062,8 @@ function buildLyrics(lines, words, stanza) {
       return out;
     });
   }).join("");
-  if (tv.words && !tv.times) tv.times = starts;
+  tv.firsts = firsts;
+  retime();
   const lh = isMobile() ? 12 : 14, gap = isMobile() ? 6 : 8;
   let y = 0, lastRow = "0", lastSt = "0", rowH = 0;
   tv.lines = [...tv.lyr.querySelectorAll("p")].map((p) => {
@@ -1108,21 +1083,8 @@ function buildLyrics(lines, words, stanza) {
   tv.lines.forEach((ln) => { ln.p.classList.add("bent"); ln.p.style.transform = "none"; });
 }
 
-// ?sync: tap (or space) when each line starts; the times apply at once, are kept on
-// this device, and are copied so they can be put into PLAYABLE[...].times for everyone
-function tapLine() {
-  if (!tv.el || !tv.lines.length) return;
-  tv.tapTimes.push(+tv.pos.toFixed(2));
-  const box = tv.el.querySelector(".tv-sync");
-  const n = tv.tapTimes.length, total = tv.lines.length;
-  if (n < total) { box.textContent = `SYNC ${n} / ${total}`; return; }
-  tv.times = tv.tapTimes.slice(); tv.syncing = false;
-  try { localStorage.setItem(timesKey(tv.title), JSON.stringify(tv.times)); } catch {}
-  const json = JSON.stringify(tv.times);
-  box.innerHTML = `SYNC DONE — SEND THIS:<textarea readonly>${json}</textarea>`;
-  navigator.clipboard?.writeText(json).catch(() => {});
-}
-addEventListener("keydown", (e) => { if (SYNC && tv.el && e.code === "Space") { e.preventDefault(); tapLine(); } });
+// every piece of a line starts when its first word is sung
+function retime() { tv.times = tv.words ? tv.firsts.map((i) => tv.words[i][0]) : null; }
 
 // player mode: the page does not scroll — the wheel, a swipe and the arrow keys wind the
 // track (and its lyrics) back and forth instead; BACK gives the page its scroll again
@@ -1136,18 +1098,18 @@ function windBy(dk) {
   wheelEnd = setTimeout(() => { if (scrub) { scrubTo(tv.progress, true); scrub = null; } }, 200);
 }
 addEventListener("wheel", (e) => {
-  if (!inPlayer()) return;
+  if (!inPlayer() || e.target.closest?.(".tv-edit")) return;
   e.preventDefault();
   const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * innerHeight : e.deltaY;
   windBy(dy / 100 * 3 / (tv.dur || 1));                      // one wheel notch = 3 s of the track
 }, { passive: false });
-addEventListener("touchmove", (e) => { if (inPlayer()) e.preventDefault(); }, { passive: false });   // the stage's own drag winds the track
+addEventListener("touchmove", (e) => { if (inPlayer() && !e.target.closest?.(".tv-edit")) e.preventDefault(); }, { passive: false });   // the stage's own drag winds the track
 addEventListener("keydown", (e) => {
   if (!inPlayer() || e.target.closest?.("input, textarea")) return;
   const step = { ArrowDown: 5, ArrowUp: -5, PageDown: 20, PageUp: -20 }[e.key] / (tv.dur || 1);   // seconds
   if (step) { e.preventDefault(); windBy(step); return; }   // NaN for other keys
   if (e.key === "Home" || e.key === "End") { e.preventDefault(); windBy(e.key === "Home" ? -1 : 1); return; }
-  if (e.code === "Space" && !SYNC && !e.target.closest?.("button")) { e.preventDefault(); toggle(); }
+  if (e.code === "Space" && !e.target.closest?.("button")) { e.preventDefault(); toggle(); }
   if (e.key === "ArrowRight") stepTrack(1);
   if (e.key === "ArrowLeft") stepTrack(-1);
 });
@@ -1451,6 +1413,12 @@ function frame() {
     figMat.uniforms.uSplit.value = 0.003 + glitchT * 0.02;
     renderer.render(scene, camera);
     flowText(a);
+  }
+  if (ext && tv.el && !tv.scrubbing) {                // the track's clock, read every frame (timeupdate is only ~4 a second)
+    tv.pos = tvAudio.currentTime; tv.dur = tvAudio.duration || tv.dur;
+    tv.progress = tv.dur ? tv.pos / tv.dur : 0;
+    plTime.textContent = `${mmss(tv.pos)} / ${mmss(tv.dur)}`;
+    $("#plBar").style.setProperty("--t", tv.progress);
   }
   tvTick(t);
   drawMini(t);

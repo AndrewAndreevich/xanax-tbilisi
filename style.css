@@ -201,10 +201,26 @@ em { font-style: normal; color: var(--dim); }
 .tv-lyrics p.bent span { position: absolute; left: 0; top: 0; will-change: transform; }   /* each letter placed by tvTick */
 .tv-lyrics p.cur { color: var(--red); }
 /* the SoundCloud widget only plays; the HUD player is the one control */
-.tv iframe { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; border: 0; opacity: 0; pointer-events: none; }
 #s3.tv-room { padding-bottom: 100vh; }             /* scroll room so the opening line can sit mid-screen */
-.tv-sync { position: absolute; left: 50%; top: 52px; transform: translateX(-50%); z-index: 4; color: var(--red); font-size: 10px; font-weight: 700; }
-.tv-sync textarea { display: block; width: min(80vw, 420px); height: 70px; margin-top: 6px; font: 10px var(--mono); background: #111; color: #eee; border: 1px solid #444; }
+/* ?edit: the word-timing editor (editor.js) */
+.tv-edit { position: fixed; right: 0; top: 0; bottom: 175px; width: 300px; z-index: 30; display: flex; flex-direction: column; gap: 6px;
+  padding: 8px; background: #000; border: 1px solid #333; font-size: 10px; color: #ddd; touch-action: pan-y; cursor: default; }
+.te-bar { display: flex; flex-wrap: wrap; gap: 4px; }
+.tv-edit button { font: 700 10px var(--mono); color: #fff; background: none; border: 1px solid #555; padding: 4px 7px; cursor: pointer; }
+.tv-edit button.on { background: #fff; color: #000; }
+.tv-edit .te-tap { padding: 12px; font-size: 12px; border-color: var(--red); color: var(--red); }
+.tv-edit .te-tap:active { background: var(--red); color: #fff; }
+.te-help { color: #888; line-height: 1.45; }
+.te-list { flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+.te-ln { display: flex; flex-wrap: wrap; gap: 3px; padding: 3px 0; border-top: 1px solid #1c1c1c; }
+.te-ln.te-st { margin-top: 12px; border-top-color: #555; }
+.te-ln b { width: 22px; color: #555; font-weight: 400; }
+.te-w { display: inline-flex; flex-direction: column; padding: 2px 4px; border: 1px solid #2a2a2a; cursor: pointer; font-weight: 700; text-transform: uppercase; }
+.te-w i { font-style: normal; font-weight: 400; color: #777; font-size: 9px; }
+.te-w.now { background: var(--red); color: #fff; }
+.te-w.now i { color: #fff; }
+.te-w.sel { border-color: #fff; outline: 1px solid #fff; }
+@media (max-width: 760px) { .tv-edit { left: 0; right: 0; top: auto; bottom: 0; width: auto; height: 46%; } .te-help { display: none; } }
 .exit-links { display: flex; flex-wrap: wrap; gap: 10px; margin: 40px 0; }
 .exit-links a { border: 1px solid #fff; padding: 6px 10px; font-weight: 700; }
 .exit-links a:hover { background: var(--red); border-color: var(--red); }

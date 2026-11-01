@@ -6,7 +6,10 @@
 #   python -I tools/align_lyrics.py build "CACHE_DIR[;CACHE_DIR2]" [VOCALS_DIR]                -> assets/lyrics_sync.json
 # AUDIO_DIR / VOCALS_DIR: Demucs output (python -m demucs --two-stems=vocals ...), <slug>/vocals.wav;
 # the vocals also show where singing happens, so words Whisper missed are put there
-# AUDIO_DIR holds <slug>.mp3 for each track (downloaded from the band's SoundCloud, not in the repo).
+# AUDIO_DIR holds <slug>.mp3 for each track (assets/audio/tracks, from the band's SoundCloud).
+#   python -I tools/align_lyrics.py manual EDIT.json [EDIT2.json ...]
+# EDIT.json: what the site's ?edit editor exports (timings fixed by hand); merged into
+# assets/lyrics_sync.json and marked "manual", so a later build keeps them
 import difflib, json, re, subprocess, sys, urllib.parse, urllib.request
 import numpy as np
 from pathlib import Path
@@ -244,8 +247,12 @@ def build(caches, vocals=None):
     """lyrics_sync.json: for each track the lines as sung (choruses repeated in full), the stanza
     each line belongs to (a new stanza where a chorus starts or ends, or after a pause) and the
     time of every word. "src" is the SoundCloud text it was made from."""
-    data = {}
+    old = json.loads(OUT.read_text(encoding="utf-8")) if OUT.exists() else {}
+    data = {t: d for t, d in old.items() if d.get("manual")}          # fixed by hand: kept as they are
     for title, slug in TRACKS.items():
+        if title in data:
+            print(f"{title}: manual, kept")
+            continue
         # Whisper on the mix and on the bare vocals: take whichever caught more of the lyrics
         runs = [json.loads((c / f"{slug}.json").read_text(encoding="utf-8")) for c in caches if (c / f"{slug}.json").exists()]
         if not runs:
@@ -288,9 +295,25 @@ def build(caches, vocals=None):
     OUT.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
 
+def manual(files):
+    data = json.loads(OUT.read_text(encoding="utf-8"))
+    for f in files:
+        for title, d in json.loads(Path(f).read_text(encoding="utf-8")).items():
+            if title not in TRACKS:
+                sys.exit(f"{f}: unknown track {title!r}")
+            n = [len(l.split(" ")) for l in d["lines"]]
+            if [len(w) for w in d["words"]] != n or len(d["stanza"]) != len(n):
+                sys.exit(f"{f}: {title}: lines, words and stanzas do not match")
+            data[title] = {"src": d["src"], "lines": d["lines"], "stanza": d["stanza"], "words": d["words"], "manual": True}
+            print(f"{title}: {len(n)} lines from {f}")
+    OUT.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+
+
 if __name__ == "__main__":
     cmd, audio_or_cache = sys.argv[1], Path(sys.argv[2])
     if cmd == "transcribe":
         transcribe(audio_or_cache, Path(sys.argv[3]), set(sys.argv[4:]))
+    if cmd == "manual":
+        manual(sys.argv[2:])
     if cmd == "build":
         build([Path(c) for c in str(audio_or_cache).split(";")], Path(sys.argv[3]) if len(sys.argv) > 3 else None)
